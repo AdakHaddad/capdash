@@ -1,103 +1,303 @@
-import Image from "next/image";
+'use client';
 
-export default function Home() {
+import { useState, useEffect, useCallback } from 'react';
+
+interface Sensors {
+  pressure: number;
+  soilTemp: number;
+  soilHumidity: number;
+  waterLevel: number;
+  airTemp: number;
+  airHumidity: number;
+}
+
+interface Pumps {
+  irrigation: boolean;
+  suction: boolean;
+}
+
+export default function IrrigationControl() {
+  const [sensors, setSensors] = useState<Sensors>({
+    pressure: 800,
+    soilTemp: 35,
+    soilHumidity: 75,
+    waterLevel: 15,
+    airTemp: 35,
+    airHumidity: 75
+  });
+
+  const [pumps, setPumps] = useState<Pumps>({
+    irrigation: true,
+    suction: false
+  });
+
+  const [showPopup, setShowPopup] = useState(false);
+  const [, setLogs] = useState<string[]>(['System initialized']);
+  const [, setLoading] = useState(false);
+
+  // Add log entry
+  const addLog = useCallback((message: string) => {
+    const timestamp = new Date().toLocaleTimeString();
+    setLogs(prev => [`[${timestamp}] ${message}`, ...prev].slice(0, 10));
+    console.log(`[${timestamp}]`, message);
+  }, []);
+
+  // Fetch sensor data
+  const fetchSensorData = useCallback(async () => {
+    setLoading(true);
+    addLog('Fetching sensor data...');
+    
+    try {
+      const response = await fetch('http://localhost:8080/api/sensors');
+      const data = await response.json();
+      setSensors(data);
+      addLog('Sensor data updated');
+    } catch (error) {
+      addLog(`Error fetching sensors: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      // Simulate data for testing
+      setSensors({
+        pressure: Math.floor(700 + Math.random() * 200),
+        soilTemp: Math.floor(30 + Math.random() * 10),
+        soilHumidity: Math.floor(60 + Math.random() * 30),
+        waterLevel: Math.floor(10 + Math.random() * 20),
+        airTemp: Math.floor(30 + Math.random() * 10),
+        airHumidity: Math.floor(60 + Math.random() * 30)
+      });
+    } finally {
+      setLoading(false);
+    }
+  }, [addLog]);
+
+  // Control pump
+  const controlPump = async (type: string) => {
+    addLog(`Control pump: ${type}`);
+    
+    try {
+      const response = await fetch('http://localhost:8080/api/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          action: type,
+          timestamp: new Date().toISOString()
+        })
+      });
+      
+      const result = await response.json();
+      
+      if (result.success) {
+        setPumps(prev => ({
+          ...prev,
+          [type === 'pompa' ? 'irrigation' : 'suction']: !prev[type === 'pompa' ? 'irrigation' : 'suction']
+        }));
+        addLog(`${type} pump toggled successfully`);
+      }
+    } catch (error) {
+      addLog(`API Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      // Simulate for testing
+      setPumps(prev => ({
+        ...prev,
+        [type === 'pompa' ? 'irrigation' : 'suction']: !prev[type === 'pompa' ? 'irrigation' : 'suction']
+      }));
+    }
+    
+    setShowPopup(false);
+  };
+
+  // Test API connection
+  const testAPI = async () => {
+    addLog('Testing API connection...');
+    
+    try {
+      const response = await fetch('http://localhost:8080/api/test');
+      const data = await response.json();
+      addLog(`API Test: ${data.message || 'Connection OK'}`);
+    } catch (error) {
+      addLog(`API Test Failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
+  // Auto-refresh option
+  useEffect(() => {
+    const interval = setInterval(() => {
+      fetchSensorData();
+    }, 5000);
+    
+    return () => clearInterval(interval);
+  }, [fetchSensorData]);
+
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    <div className="min-h-screen bg-gradient-to-br from-indigo-500 via-purple-500 to-purple-600 flex items-center justify-center p-5">
+      <div className="bg-gray-50 rounded-3xl p-6 max-w-sm w-full shadow-2xl">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-6 px-1">
+          <div className="flex items-center gap-2.5">
+            <div className="w-6 h-6 bg-gradient-to-r from-yellow-400 to-orange-500 rounded-full relative shadow-lg shadow-yellow-400/50">
+              <div className="absolute inset-[-8px] bg-gradient-to-r from-transparent via-yellow-400 to-transparent rounded-full animate-spin opacity-50"></div>
+            </div>
+            <span className="text-sm font-medium text-gray-800">3/3 Connected</span>
+          </div>
+          <span className="text-lg">📶</span>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+
+        {/* Sensor Grid */}
+        <div className="grid grid-cols-2 gap-4 mb-6">
+          {/* Pressure Sensor */}
+          <div className="bg-white rounded-xl p-4 shadow-lg hover:shadow-xl transition-all duration-200 hover:-translate-y-0.5">
+            <div className="text-xs text-gray-600 mb-2 flex items-center gap-1">
+              <span>🎯</span> Tekanan
+            </div>
+            <div className="text-3xl font-semibold text-gray-900">{sensors.pressure}</div>
+          </div>
+
+          {/* Soil Sensor */}
+          <div className="bg-white rounded-xl p-4 shadow-lg hover:shadow-xl transition-all duration-200 hover:-translate-y-0.5">
+            <div className="text-xs text-gray-600 mb-2">Tanah</div>
+            <div className="text-3xl font-semibold text-gray-900">{sensors.soilTemp}°C</div>
+            <div className="flex items-center gap-1 mt-1">
+              <span className="text-sm text-gray-600">💧 {sensors.soilHumidity}%</span>
+            </div>
+          </div>
+
+          {/* Water Level Sensor - Highlighted */}
+          <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl p-4 shadow-lg hover:shadow-xl transition-all duration-200 hover:-translate-y-0.5 text-white">
+            <div className="text-xs text-white/90 mb-2 flex items-center gap-1">
+              <span>💧</span> Ketinggian Air
+            </div>
+            <div className="text-3xl font-semibold text-white">{sensors.waterLevel}cm</div>
+          </div>
+
+          {/* Air Sensor */}
+          <div className="bg-white rounded-xl p-4 shadow-lg hover:shadow-xl transition-all duration-200 hover:-translate-y-0.5">
+            <div className="text-xs text-gray-600 mb-2">Udara</div>
+            <div className="text-3xl font-semibold text-gray-900">{sensors.airTemp}°C</div>
+            <div className="flex items-center gap-1 mt-1">
+              <span className="text-sm text-gray-600">💧 {sensors.airHumidity}%</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Status Section */}
+        <div className="bg-white rounded-xl p-5 mb-5 shadow-lg">
+          <div className="flex justify-between items-center py-3 border-b border-gray-100">
+            <div>
+              <div className="text-sm font-medium text-gray-800">Status Pompa Irigasi</div>
+            </div>
+            <span className={`px-4 py-1.5 rounded-full text-xs font-semibold uppercase ${
+              pumps.irrigation ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+            }`}>
+              {pumps.irrigation ? 'ON' : 'OFF'}
+            </span>
+          </div>
+          <div className="flex justify-between items-center py-3 border-b border-gray-100">
+            <div>
+              <div className="text-sm font-medium text-gray-800">Status Pompa Sedot</div>
+            </div>
+            <span className={`px-4 py-1.5 rounded-full text-xs font-semibold uppercase ${
+              pumps.suction ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+            }`}>
+              {pumps.suction ? 'ON' : 'OFF'}
+            </span>
+          </div>
+          <div className="flex justify-between items-center py-3">
+            <div>
+              <div className="text-sm font-medium text-gray-800">Pompa selanjutnya: Hari ini,</div>
+              <div className="text-xs text-gray-600 mt-1">18:00</div>
+            </div>
+            <button 
+              className="bg-gray-900 text-white px-7 py-3.5 rounded-xl text-base font-semibold cursor-pointer transition-all duration-300 shadow-lg hover:bg-gray-700 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0"
+              onClick={() => setShowPopup(true)}
+            >
+              Kontrol Manual
+            </button>
+          </div>
+        </div>
+
+        {/* Weather Alert */}
+        <div className="bg-gradient-to-r from-blue-400 to-blue-600 text-white rounded-xl p-4 mb-5 shadow-lg shadow-blue-400/30 flex items-center gap-2.5">
+          <span className="text-xl">☀️</span>
+          <div className="flex-1 text-sm leading-relaxed">
+            <strong>Perkiraan Cuaca</strong><br />
+            Cerah selama beberapa jam ke depan. Jadwal pengairan telah disesuaikan
+          </div>
+        </div>
+
+        {/* Bottom Navigation */}
+        <div className="flex justify-around mt-6 pt-5 border-t border-gray-200">
+          <div className="flex flex-col items-center gap-1.5 cursor-pointer transition-opacity duration-200 hover:opacity-70">
+            <span className="text-2xl text-gray-600">📅</span>
+            <span className="text-xs text-gray-600">Jadwal</span>
+          </div>
+          <div className="flex flex-col items-center gap-1.5 cursor-pointer transition-opacity duration-200 hover:opacity-70">
+            <span className="text-2xl text-gray-600">📊</span>
+            <span className="text-xs text-gray-600">History</span>
+          </div>
+        </div>
+
+        {/* Popup Modal */}
+        {showPopup && (
+          <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center animate-in fade-in duration-300" onClick={() => setShowPopup(false)}>
+            <div className="bg-white rounded-3xl p-8 w-[90%] max-w-sm animate-in slide-in-from-bottom-4 duration-300" onClick={(e) => e.stopPropagation()}>
+              <div className="flex gap-5 mb-6">
+                <div 
+                  className="flex-1 flex flex-col items-center p-6 rounded-xl cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl bg-gradient-to-br from-orange-400 to-orange-600"
+                  onClick={() => controlPump('sedot')}
+                >
+                  <div className="text-4xl text-white mb-2.5">↓</div>
+                  <div className="text-base font-semibold text-white">Sedot</div>
+                </div>
+                <div 
+                  className="flex-1 flex flex-col items-center p-6 rounded-xl cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:shadow-2xl bg-gradient-to-br from-blue-400 to-blue-600"
+                  onClick={() => controlPump('pompa')}
+                >
+                  <div className="text-4xl text-white mb-2.5">💧</div>
+                  <div className="text-base font-semibold text-white">Pompa</div>
+                </div>
+              </div>
+              <button 
+                className="w-full py-3.5 bg-gray-900 text-white border-none rounded-xl text-base font-semibold cursor-pointer transition-all duration-300 hover:bg-gray-700"
+                onClick={() => setShowPopup(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Debug Panel */}
+        <div className="fixed bottom-2.5 right-2.5 z-50">
+          <button 
+            onClick={testAPI}
+            className="bg-gray-900 text-white border-none px-3 py-2 rounded-md text-xs cursor-pointer"
+          >
+            Test API
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
+
+// ===================================
+// app/styles.css
+/* 
+
+*/
+
+// ===================================
+// app/api/sensors/route.js
+/*
+
+*/
+
+// ===================================
+// app/api/control/route.js
+/*
+
+*/
+
+// ===================================
+// app/api/test/route.js
+/*
+
+*/
+
