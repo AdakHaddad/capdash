@@ -126,7 +126,7 @@ export default function IrrigationControl() {
   }, [fetchSensorData]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-500 via-purple-500 to-purple-600 flex items-center justify-center p-5">
+    <div className="min-h-screen bg-white flex items-center justify-center p-5">
       <div className="bg-gray-50 rounded-3xl p-6 max-w-sm w-full shadow-2xl">
         {/* Header */}
         <div className="flex justify-between items-center mb-6 px-1">
