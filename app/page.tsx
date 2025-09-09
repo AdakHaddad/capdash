@@ -126,10 +126,11 @@ export default function IrrigationControl() {
   }, [fetchSensorData]);
 
   return (
-    <div className="min-h-screen bg-white flex items-center justify-center p-5">
-      <div className="bg-gray-50 rounded-3xl p-6 max-w-sm w-full shadow-2xl">
+    <div className="min-h-screen bg-white flex items-start justify-center p-2 md:p-4 lg:p-6">
+      <div className="p-3 md:p-6 w-full max-w-6xl">
+        <div className="grid md:grid-cols-3 gap-4 md:gap-6">
         {/* Header */}
-        <div className="flex justify-between items-center mb-6 px-1">
+        <div className="flex justify-between items-center mb-4 px-1 md:col-span-3 md:mb-0">
           <div className="flex items-center gap-2.5">
             <div className="w-6 h-6 bg-gradient-to-r from-yellow-400 to-orange-500 rounded-full relative shadow-lg shadow-yellow-400/50">
               <div className="absolute inset-[-8px] bg-gradient-to-r from-transparent via-yellow-400 to-transparent rounded-full animate-spin opacity-50"></div>
@@ -140,36 +141,36 @@ export default function IrrigationControl() {
         </div>
 
         {/* Sensor Grid */}
-        <div className="grid grid-cols-2 gap-4 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-4 md:mb-6 md:col-span-2">
           {/* Pressure Sensor */}
-          <div className="bg-white rounded-xl p-4 shadow-lg hover:shadow-xl transition-all duration-200 hover:-translate-y-0.5">
+          <div className="p-2">
             <div className="text-xs text-gray-600 mb-2 flex items-center gap-1">
               <span>🎯</span> Tekanan
             </div>
-            <div className="text-3xl font-semibold text-gray-900">{sensors.pressure}</div>
+            <div className="text-2xl md:text-3xl font-semibold text-gray-900">{sensors.pressure}</div>
           </div>
 
           {/* Soil Sensor */}
-          <div className="bg-white rounded-xl p-4 shadow-lg hover:shadow-xl transition-all duration-200 hover:-translate-y-0.5">
+          <div className="p-2">
             <div className="text-xs text-gray-600 mb-2">Tanah</div>
-            <div className="text-3xl font-semibold text-gray-900">{sensors.soilTemp}°C</div>
+            <div className="text-2xl md:text-3xl font-semibold text-gray-900">{sensors.soilTemp}°C</div>
             <div className="flex items-center gap-1 mt-1">
               <span className="text-sm text-gray-600">💧 {sensors.soilHumidity}%</span>
             </div>
           </div>
 
           {/* Water Level Sensor - Highlighted */}
-          <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl p-4 shadow-lg hover:shadow-xl transition-all duration-200 hover:-translate-y-0.5 text-white">
-            <div className="text-xs text-white/90 mb-2 flex items-center gap-1">
+          <div className="p-2">
+            <div className="text-xs text-gray-600 mb-2 flex items-center gap-1">
               <span>💧</span> Ketinggian Air
             </div>
-            <div className="text-3xl font-semibold text-white">{sensors.waterLevel}cm</div>
+            <div className="text-2xl md:text-3xl font-semibold text-gray-900">{sensors.waterLevel}cm</div>
           </div>
 
           {/* Air Sensor */}
-          <div className="bg-white rounded-xl p-4 shadow-lg hover:shadow-xl transition-all duration-200 hover:-translate-y-0.5">
+          <div className="p-2">
             <div className="text-xs text-gray-600 mb-2">Udara</div>
-            <div className="text-3xl font-semibold text-gray-900">{sensors.airTemp}°C</div>
+            <div className="text-2xl md:text-3xl font-semibold text-gray-900">{sensors.airTemp}°C</div>
             <div className="flex items-center gap-1 mt-1">
               <span className="text-sm text-gray-600">💧 {sensors.airHumidity}%</span>
             </div>
@@ -177,13 +178,13 @@ export default function IrrigationControl() {
         </div>
 
         {/* Status Section */}
-        <div className="bg-white rounded-xl p-5 mb-5 shadow-lg">
+        <div className="p-4 mb-4 md:mb-0 md:col-span-1">
           <div className="flex justify-between items-center py-3 border-b border-gray-100">
             <div>
               <div className="text-sm font-medium text-gray-800">Status Pompa Irigasi</div>
             </div>
-            <span className={`px-4 py-1.5 rounded-full text-xs font-semibold uppercase ${
-              pumps.irrigation ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+            <span className={`px-3 py-1 rounded-full text-[10px] font-medium uppercase border ${
+              pumps.irrigation ? 'border-green-500 text-green-700' : 'border-red-500 text-red-700'
             }`}>
               {pumps.irrigation ? 'ON' : 'OFF'}
             </span>
@@ -192,8 +193,8 @@ export default function IrrigationControl() {
             <div>
               <div className="text-sm font-medium text-gray-800">Status Pompa Sedot</div>
             </div>
-            <span className={`px-4 py-1.5 rounded-full text-xs font-semibold uppercase ${
-              pumps.suction ? 'bg-green-500 text-white' : 'bg-red-500 text-white'
+            <span className={`px-3 py-1 rounded-full text-[10px] font-medium uppercase border ${
+              pumps.suction ? 'border-green-500 text-green-700' : 'border-red-500 text-red-700'
             }`}>
               {pumps.suction ? 'ON' : 'OFF'}
             </span>
@@ -213,24 +214,45 @@ export default function IrrigationControl() {
         </div>
 
         {/* Weather Alert */}
-        <div className="bg-gradient-to-r from-blue-400 to-blue-600 text-white rounded-xl p-4 mb-5 shadow-lg shadow-blue-400/30 flex items-center gap-2.5">
-          <span className="text-xl">☀️</span>
-          <div className="flex-1 text-sm leading-relaxed">
+        <div className="p-3 mb-4 md:col-span-3">
+          <span className="text-lg">☀️</span>
+          <div className="flex-1 text-sm leading-relaxed text-gray-800 mt-1">
             <strong>Perkiraan Cuaca</strong><br />
             Cerah selama beberapa jam ke depan. Jadwal pengairan telah disesuaikan
           </div>
         </div>
 
-        {/* Bottom Navigation */}
-        <div className="flex justify-around mt-6 pt-5 border-t border-gray-200">
+        {/* Bottom Navigation (mobile only) */}
+        <div className="flex justify-around mt-4 pt-4 border-t border-gray-200 md:col-span-3 md:hidden">
           <div className="flex flex-col items-center gap-1.5 cursor-pointer transition-opacity duration-200 hover:opacity-70">
-            <span className="text-2xl text-gray-600">📅</span>
-            <span className="text-xs text-gray-600">Jadwal</span>
+            <span className="text-xl text-gray-600">📅</span>
+            <span className="text-[11px] text-gray-600">Jadwal</span>
           </div>
           <div className="flex flex-col items-center gap-1.5 cursor-pointer transition-opacity duration-200 hover:opacity-70">
-            <span className="text-2xl text-gray-600">📊</span>
-            <span className="text-xs text-gray-600">History</span>
+            <span className="text-xl text-gray-600">📊</span>
+            <span className="text-[11px] text-gray-600">History</span>
           </div>
+        </div>
+        
+        {/* Desktop inline panels for Jadwal and History */}
+        <div className="hidden md:grid md:grid-cols-2 gap-4 md:col-span-3 mt-2">
+          <div className="p-4 border border-gray-200 rounded-lg">
+            <div className="text-sm font-medium text-gray-800 mb-2">Jadwal</div>
+            <ul className="text-sm text-gray-700 space-y-2">
+              <li>• 08:00 - Irigasi 15 menit</li>
+              <li>• 12:00 - Irigasi 10 menit</li>
+              <li>• 18:00 - Irigasi 20 menit</li>
+            </ul>
+          </div>
+          <div className="p-4 border border-gray-200 rounded-lg">
+            <div className="text-sm font-medium text-gray-800 mb-2">History</div>
+            <ul className="text-sm text-gray-700 space-y-2">
+              <li>• 07:55 - Sensor update sukses</li>
+              <li>• 07:40 - Pompa irigasi ON</li>
+              <li>• 07:25 - Pompa irigasi OFF</li>
+            </ul>
+          </div>
+        </div>
         </div>
 
         {/* Popup Modal */}
