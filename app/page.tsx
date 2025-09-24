@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import mqtt, { MqttClient } from 'mqtt';
 
 interface Sensors {
   pressure: number;
@@ -14,6 +15,32 @@ interface Sensors {
 interface Pumps {
   irrigation: boolean;
   suction: boolean;
+}
+
+interface Inference {
+  irrigation_recommendation: number;
+  water_stress_level: number;
+  should_irrigate: boolean;
+  decision_reason: string;
+  timestamp: number;
+}
+
+interface ApiResponse {
+  pressure: number;
+  soilTemp: number;
+  soilHumidity: number;
+  waterLevel: number;
+  airTemp: number;
+  airHumidity: number;
+  timestamp: number;
+  inference?: Inference;
+  pumps?: {
+    irrigation: boolean;
+    suction: boolean;
+    timestamp: number;
+  };
+  data_source?: string;
+  mqtt_connected?: boolean;
 }
 
 export default function IrrigationControl() {
@@ -31,9 +58,18 @@ export default function IrrigationControl() {
     suction: false
   });
 
+  const [inference, setInference] = useState<Inference | null>(null);
+  const [dataSource, setDataSource] = useState<string>('unknown');
+  const [mqttConnected, setMqttConnected] = useState<boolean>(false);
   const [showPopup, setShowPopup] = useState(false);
   const [, setLogs] = useState<string[]>(['System initialized']);
   const [, setLoading] = useState(false);
+
+  // MQTT client reference (persist across renders)
+  const mqttClientRef = useRef<MqttClient | null>(null);
+
+  // API base URL - can be switched between backends
+  const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:3001';
 
   // Add log entry
   const addLog = useCallback((message: string) => {
@@ -48,10 +84,40 @@ export default function IrrigationControl() {
     addLog('Fetching sensor data...');
     
     try {
-      const response = await fetch('http://localhost:8080/api/sensors');
-      const data = await response.json();
-      setSensors(data);
-      addLog('Sensor data updated');
+      const response = await fetch(`${API_BASE}/api/sensors`);
+      const data: ApiResponse = await response.json();
+      
+      // Update sensors
+      setSensors({
+        pressure: data.pressure,
+        soilTemp: data.soilTemp,
+        soilHumidity: data.soilHumidity,
+        waterLevel: data.waterLevel,
+        airTemp: data.airTemp,
+        airHumidity: data.airHumidity
+      });
+
+      // Update inference if available
+      if (data.inference) {
+        setInference(data.inference);
+      }
+
+      // Update pump status if available
+      if (data.pumps) {
+        setPumps({
+          irrigation: data.pumps.irrigation,
+          suction: data.pumps.suction
+        });
+      }
+
+      // Update connection status
+      setDataSource(data.data_source || 'unknown');
+      setMqttConnected(data.mqtt_connected || false);
+
+      addLog(`Sensor data updated (${data.data_source || 'unknown'})`);
+      if (data.inference?.should_irrigate) {
+        addLog(`AI Recommendation: ${data.inference.decision_reason}`);
+      }
     } catch (error) {
       addLog(`Error fetching sensors: ${error instanceof Error ? error.message : 'Unknown error'}`);
       // Simulate data for testing
@@ -63,8 +129,68 @@ export default function IrrigationControl() {
         airTemp: Math.floor(30 + Math.random() * 10),
         airHumidity: Math.floor(60 + Math.random() * 30)
       });
+      setDataSource('fallback');
     } finally {
       setLoading(false);
+    }
+  }, [addLog, API_BASE]);
+
+  // Initialize MQTT (WSS) connection to HiveMQ Cloud
+  useEffect(() => {
+    const MQTT_WSS_URL = 'wss://b2a051ac43c4410e86861ed01b937dec.s1.eu.hivemq.cloud:8884/mqtt';
+    const USERNAME = 'user1';
+    const PASSWORD = 'P@ssw0rd';
+
+    const client = mqtt.connect(MQTT_WSS_URL, {
+      username: USERNAME,
+      password: PASSWORD,
+      reconnectPeriod: 2000,
+      clean: true,
+    });
+
+    mqttClientRef.current = client;
+
+    client.on('connect', () => {
+      setMqttConnected(true);
+      addLog('MQTT connected to HiveMQ Cloud');
+    });
+
+    client.on('reconnect', () => {
+      addLog('MQTT reconnecting...');
+    });
+
+    client.on('close', () => {
+      setMqttConnected(false);
+      addLog('MQTT connection closed');
+    });
+
+    client.on('error', (err) => {
+      addLog(`MQTT error: ${err?.message || String(err)}`);
+    });
+
+    return () => {
+      try {
+        client.end(true);
+      } catch {}
+      mqttClientRef.current = null;
+    };
+  }, [addLog]);
+
+  // Publish pump control over MQTT if connected
+  const publishPumpControl = useCallback((type: string) => {
+    const client = mqttClientRef.current;
+    if (!client || !client.connected) {
+      return false;
+    }
+    const topic = 'capdash/pump/cmd/set';
+    const payload = JSON.stringify({ action: type, source: 'nextjs', ts: new Date().toISOString() });
+    try {
+      client.publish(topic, payload, { qos: 1, retain: false });
+      addLog(`MQTT published → ${topic}: ${payload}`);
+      return true;
+    } catch (e) {
+      addLog(`MQTT publish failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+      return false;
     }
   }, [addLog]);
 
@@ -72,32 +198,39 @@ export default function IrrigationControl() {
   const controlPump = async (type: string) => {
     addLog(`Control pump: ${type}`);
     
-    try {
-      const response = await fetch('http://localhost:8080/api/control', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          action: type,
-          timestamp: new Date().toISOString()
-        })
-      });
-      
-      const result = await response.json();
-      
-      if (result.success) {
+    // Prefer MQTT publish; if not connected, fall back to API
+    const sentViaMqtt = publishPumpControl(type);
+
+    if (!sentViaMqtt) {
+      try {
+        const response = await fetch(`${API_BASE}/api/control`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            action: type,
+            timestamp: new Date().toISOString()
+          })
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+          setPumps(prev => ({
+            ...prev,
+            [type === 'pompa' ? 'irrigation' : 'suction']: result.new_state
+          }));
+          addLog(`${result.message}`);
+        } else {
+          addLog(`Control failed: ${result.message}`);
+        }
+      } catch (error) {
+        addLog(`API Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        // Simulate for testing
         setPumps(prev => ({
           ...prev,
           [type === 'pompa' ? 'irrigation' : 'suction']: !prev[type === 'pompa' ? 'irrigation' : 'suction']
         }));
-        addLog(`${type} pump toggled successfully`);
       }
-    } catch (error) {
-      addLog(`API Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      // Simulate for testing
-      setPumps(prev => ({
-        ...prev,
-        [type === 'pompa' ? 'irrigation' : 'suction']: !prev[type === 'pompa' ? 'irrigation' : 'suction']
-      }));
     }
     
     setShowPopup(false);
@@ -108,9 +241,9 @@ export default function IrrigationControl() {
     addLog('Testing API connection...');
     
     try {
-      const response = await fetch('http://localhost:8080/api/test');
+      const response = await fetch(`${API_BASE}/api/test`);
       const data = await response.json();
-      addLog(`API Test: ${data.message || 'Connection OK'}`);
+      addLog(`API Test: ${data.message || 'Connection OK'} (${data.server})`);
     } catch (error) {
       addLog(`API Test Failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
@@ -132,13 +265,33 @@ export default function IrrigationControl() {
         {/* Header */}
         <div className="flex justify-between items-center mb-4 px-1 md:col-span-3 md:mb-0">
           <div className="flex items-center gap-2.5">
-            <div className="w-6 h-6 bg-gradient-to-r from-yellow-400 to-orange-500 rounded-full relative shadow-lg shadow-yellow-400/50">
-              <div className="absolute inset-[-8px] bg-gradient-to-r from-transparent via-yellow-400 to-transparent rounded-full animate-spin opacity-50"></div>
+            <div className={`w-6 h-6 rounded-full relative shadow-lg ${
+              mqttConnected 
+                ? 'bg-gradient-to-r from-green-400 to-green-500 shadow-green-400/50' 
+                : 'bg-gradient-to-r from-yellow-400 to-orange-500 shadow-yellow-400/50'
+            }`}>
+              <div className={`absolute inset-[-8px] rounded-full animate-spin opacity-50 ${
+                mqttConnected 
+                  ? 'bg-gradient-to-r from-transparent via-green-400 to-transparent'
+                  : 'bg-gradient-to-r from-transparent via-yellow-400 to-transparent'
+              }`}></div>
             </div>
-            <span className="text-sm font-medium text-gray-800">3/3 Connected</span>
+            <div className="flex flex-col">
+              <span className="text-sm font-medium text-gray-800">
+                {mqttConnected ? 'MQTT Connected' : dataSource === 'fallback' ? 'Offline Mode' : 'Simulation Mode'}
+              </span>
+              <span className="text-xs text-gray-500">{dataSource}</span>
+            </div>
           </div>
-          <span className="text-lg">📶</span>
-        </div>
+          <div className="flex items-center gap-2">
+            {inference?.should_irrigate && (
+              <div className="px-2 py-1 bg-orange-100 text-orange-800 rounded-full text-xs font-medium">
+                AI: Irrigate
+              </div>
+            )}
+            <span className="text-lg">📶</span>
+          </div>
+      </div>
 
         {/* Sensor Grid */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-4 md:mb-6 md:col-span-2">
@@ -182,13 +335,13 @@ export default function IrrigationControl() {
           <div className="flex justify-between items-center py-3 border-b border-gray-100">
             <div>
               <div className="text-sm font-medium text-gray-800">Status Pompa Irigasi</div>
-            </div>
+      </div>
             <span className={`px-3 py-1 rounded-full text-[10px] font-medium uppercase border ${
               pumps.irrigation ? 'border-green-500 text-green-700' : 'border-red-500 text-red-700'
             }`}>
-              {pumps.irrigation ? 'ON' : 'OFF'}
-            </span>
-          </div>
+            {pumps.irrigation ? 'ON' : 'OFF'}
+          </span>
+        </div>
           <div className="flex justify-between items-center py-3 border-b border-gray-100">
             <div>
               <div className="text-sm font-medium text-gray-800">Status Pompa Sedot</div>
@@ -196,9 +349,9 @@ export default function IrrigationControl() {
             <span className={`px-3 py-1 rounded-full text-[10px] font-medium uppercase border ${
               pumps.suction ? 'border-green-500 text-green-700' : 'border-red-500 text-red-700'
             }`}>
-              {pumps.suction ? 'ON' : 'OFF'}
-            </span>
-          </div>
+            {pumps.suction ? 'ON' : 'OFF'}
+          </span>
+        </div>
           <div className="flex justify-between items-center py-3">
             <div>
               <div className="text-sm font-medium text-gray-800">Pompa selanjutnya: Hari ini,</div>
@@ -209,9 +362,9 @@ export default function IrrigationControl() {
               onClick={() => setShowPopup(true)}
             >
               Kontrol Manual
-            </button>
-          </div>
+          </button>
         </div>
+      </div>
 
         {/* Weather Alert */}
         <div className="p-3 mb-4 md:col-span-3">
@@ -231,9 +384,9 @@ export default function IrrigationControl() {
           <div className="flex flex-col items-center gap-1.5 cursor-pointer transition-opacity duration-200 hover:opacity-70">
             <span className="text-xl text-gray-600">📊</span>
             <span className="text-[11px] text-gray-600">History</span>
-          </div>
         </div>
-        
+      </div>
+
         {/* Desktop inline panels for Jadwal and History */}
         <div className="hidden md:grid md:grid-cols-2 gap-4 md:col-span-3 mt-2">
           <div className="p-4 border border-gray-200 rounded-lg">
@@ -253,10 +406,10 @@ export default function IrrigationControl() {
             </ul>
           </div>
         </div>
-        </div>
+      </div>
 
-        {/* Popup Modal */}
-        {showPopup && (
+      {/* Popup Modal */}
+      {showPopup && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center animate-in fade-in duration-300" onClick={() => setShowPopup(false)}>
             <div className="bg-white rounded-3xl p-8 w-[90%] max-w-sm animate-in slide-in-from-bottom-4 duration-300" onClick={(e) => e.stopPropagation()}>
               <div className="flex gap-5 mb-6">
