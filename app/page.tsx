@@ -140,6 +140,8 @@ export default function IrrigationControl() {
     const MQTT_WSS_URL = 'wss://b2a051ac43c4410e86861ed01b937dec.s1.eu.hivemq.cloud:8884/mqtt';
     const USERNAME = 'user1';
     const PASSWORD = 'P@ssw0rd';
+    const DEVICE_ID = 'stm32-01';
+    const TOPIC_TELEMETRY = `devices/${DEVICE_ID}/telemetry`;
 
     const client = mqtt.connect(MQTT_WSS_URL, {
       username: USERNAME,
@@ -153,6 +155,12 @@ export default function IrrigationControl() {
     client.on('connect', () => {
       setMqttConnected(true);
       addLog('MQTT connected to HiveMQ Cloud');
+      try {
+        client.subscribe(TOPIC_TELEMETRY, { qos: 1 });
+        addLog(`Subscribed to ${TOPIC_TELEMETRY}`);
+      } catch (e) {
+        addLog(`Subscribe failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+      }
     });
 
     client.on('reconnect', () => {
@@ -166,6 +174,33 @@ export default function IrrigationControl() {
 
     client.on('error', (err) => {
       addLog(`MQTT error: ${err?.message || String(err)}`);
+    });
+
+    client.on('message', (topic, payload) => {
+      if (topic === TOPIC_TELEMETRY) {
+        try {
+          const data = JSON.parse(payload.toString());
+          if (typeof data === 'object') {
+            if (typeof data.pressure === 'number' && typeof data.soilTemp === 'number') {
+              setSensors(prev => ({
+                pressure: data.pressure ?? prev.pressure,
+                soilTemp: data.soilTemp ?? prev.soilTemp,
+                soilHumidity: data.soilHumidity ?? prev.soilHumidity,
+                waterLevel: data.waterLevel ?? prev.waterLevel,
+                airTemp: data.airTemp ?? prev.airTemp,
+                airHumidity: data.airHumidity ?? prev.airHumidity,
+              }));
+              setDataSource('mqtt');
+            }
+            if (typeof data.pumps === 'object') {
+              setPumps(prev => ({
+                irrigation: data.pumps.irrigation ?? prev.irrigation,
+                suction: data.pumps.suction ?? prev.suction,
+              }));
+            }
+          }
+        } catch {}
+      }
     });
 
     return () => {
