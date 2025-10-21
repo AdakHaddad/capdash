@@ -19,7 +19,8 @@ export default function MqttClientWidget() {
   const [connectionStatus, setConnectionStatus] = useState<string>('Connecting...');
   const deviceId = 'stm32-01'; // keep in sync with STM32
   const topicTelemetry = `devices/${deviceId}/telemetry`;
-  const topicCommands = `devices/${deviceId}/commands`;
+  // Remove unused topicCommands to fix lint warning
+  // const topicCommands = `devices/${deviceId}/commands`;
 
   useEffect(() => {
     const url = 'wss://b2a051ac43c4410e86861ed01b937dec.s1.eu.hivemq.cloud:8884/mqtt';
@@ -79,7 +80,7 @@ export default function MqttClientWidget() {
         client.end(true);
       } catch {}
     };
-  }, []);
+  }, [topicTelemetry]); // Added missing dependency
 
   const sendCommand = (cmd: unknown) => {
     const url = 'wss://b2a051ac43c4410e86861ed01b937dec.s1.eu.hivemq.cloud:8884/mqtt';
