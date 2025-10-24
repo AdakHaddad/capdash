@@ -64,6 +64,8 @@ export default function IrrigationControl() {
   const [showPopup, setShowPopup] = useState(false);
   const [, setLogs] = useState<string[]>(['System initialized']);
   const [, setLoading] = useState(false);
+  // Remove unused lastDataReceived to fix lint warning
+  // const [lastDataReceived, setLastDataReceived] = useState<Date | null>(null);
 
   // MQTT client reference (persist across renders)
   const mqttClientRef = useRef<MqttClient | null>(null);
@@ -120,86 +122,240 @@ export default function IrrigationControl() {
       }
     } catch (error) {
       addLog(`Error fetching sensors: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      // Simulate data for testing
-      setSensors({
-        pressure: Math.floor(700 + Math.random() * 200),
-        soilTemp: Math.floor(30 + Math.random() * 10),
-        soilHumidity: Math.floor(60 + Math.random() * 30),
-        waterLevel: Math.floor(10 + Math.random() * 20),
-        airTemp: Math.floor(30 + Math.random() * 10),
-        airHumidity: Math.floor(60 + Math.random() * 30)
-      });
-      setDataSource('fallback');
+      // Don't simulate random data - just rely on MQTT from test.mosquitto.org
+      addLog('Waiting for MQTT data from test.mosquitto.org...');
+      setDataSource('awaiting-mqtt');
     } finally {
       setLoading(false);
     }
   }, [addLog, API_BASE]);
 
-  // Initialize MQTT (WSS) connection to HiveMQ Cloud
+  // Initialize MQTT (WS) connection to test.mosquitto.org
   useEffect(() => {
-    const MQTT_WSS_URL = 'wss://b2a051ac43c4410e86861ed01b937dec.s1.eu.hivemq.cloud:8884/mqtt';
-    const USERNAME = 'user1';
-    const PASSWORD = 'P@ssw0rd';
+    const MQTT_WS_URL = 'ws://test.mosquitto.org:8080';
+    const USERNAME = null; // No authentication needed
+    const PASSWORD = null;
     const DEVICE_ID = 'stm32-01';
-    const TOPIC_TELEMETRY = `devices/${DEVICE_ID}/telemetry`;
+    const TOPIC_TELEMETRY = `telemetry/stm32/data`;
 
-    const client = mqtt.connect(MQTT_WSS_URL, {
+    // Updated client configuration for test.mosquitto.org
+    const client = mqtt.connect(MQTT_WS_URL, {
+      clientId: 'NextJS_WebClient_' + Math.random().toString(16).substring(2, 8),
       username: USERNAME,
       password: PASSWORD,
       reconnectPeriod: 2000,
       clean: true,
+      connectTimeout: 10000,
+      keepalive: 60,
+      protocol: 'ws',
+      protocolVersion: 4, // MQTT 3.1.1
     });
 
     mqttClientRef.current = client;
 
-    client.on('connect', () => {
+    client.on('connect', (connack) => {
       setMqttConnected(true);
-      addLog('MQTT connected to HiveMQ Cloud');
+      addLog('✅ MQTT connected to test.mosquitto.org');
+      addLog(`Connection info: ${JSON.stringify(connack)}`);
+      
       try {
-        client.subscribe(TOPIC_TELEMETRY, { qos: 1 });
-        addLog(`Subscribed to ${TOPIC_TELEMETRY}`);
+        // Subscribe to all relevant topics
+        const topics = [
+          TOPIC_TELEMETRY,
+          'telemetry/stm32/status',
+          'test'
+        ];
+        
+        topics.forEach(topic => {
+          client.subscribe(topic, { qos: 1 }, (err, granted) => {
+            if (err) {
+              addLog(`❌ Subscribe failed for ${topic}: ${err.message}`);
+            } else {
+              addLog(`✅ Subscribed to ${topic} (QoS: ${granted?.[0]?.qos || 0})`);
+            }
+          });
+        });
+        
       } catch (e) {
-        addLog(`Subscribe failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+        addLog(`❌ Subscribe error: ${e instanceof Error ? e.message : 'Unknown error'}`);
       }
     });
 
     client.on('reconnect', () => {
-      addLog('MQTT reconnecting...');
+      addLog('🔄 MQTT reconnecting...');
     });
 
     client.on('close', () => {
       setMqttConnected(false);
-      addLog('MQTT connection closed');
+      addLog('🔌 MQTT connection closed');
     });
 
     client.on('error', (err) => {
-      addLog(`MQTT error: ${err?.message || String(err)}`);
+      setMqttConnected(false);
+      addLog(`❌ MQTT error: ${err?.message || String(err)}`);
+      console.error('MQTT Error Details:', err);
+    });
+
+    client.on('offline', () => {
+      setMqttConnected(false);
+      addLog('📵 MQTT client offline');
+    });
+
+    client.on('disconnect', (packet) => {
+      setMqttConnected(false);
+      addLog(`🔌 MQTT disconnected: ${JSON.stringify(packet)}`);
     });
 
     client.on('message', (topic, payload) => {
-      if (topic === TOPIC_TELEMETRY) {
+      if (topic === TOPIC_TELEMETRY || topic === 'telemetry/stm32/status' || topic === 'test') {  // Support all topics
         try {
-          const data = JSON.parse(payload.toString());
-          if (typeof data === 'object') {
-            if (typeof data.pressure === 'number' && typeof data.soilTemp === 'number') {
-              setSensors(prev => ({
-                pressure: data.pressure ?? prev.pressure,
-                soilTemp: data.soilTemp ?? prev.soilTemp,
-                soilHumidity: data.soilHumidity ?? prev.soilHumidity,
-                waterLevel: data.waterLevel ?? prev.waterLevel,
-                airTemp: data.airTemp ?? prev.airTemp,
-                airHumidity: data.airHumidity ?? prev.airHumidity,
-              }));
-              setDataSource('mqtt');
+          const payloadStr = payload.toString();
+          addLog(`📨 Received on ${topic}: ${payloadStr}`);
+          
+          // If it's just a simple test message (like "STM32_OK" or "Hello")
+          if (topic === 'test') {
+            addLog(`🔔 Test message received: ${payloadStr}`);
+            // Only set to test mode if we don't already have real data
+            if (dataSource === 'unknown' || dataSource === 'awaiting-mqtt') {
+              setDataSource('mqtt-test');
             }
-            if (typeof data.pumps === 'object') {
-              setPumps(prev => ({
-                irrigation: data.pumps.irrigation ?? prev.irrigation,
-                suction: data.pumps.suction ?? prev.suction,
-              }));
+            // Don't update sensors for test messages, just show they arrived
+            return;
+          }
+          
+          // Check if it's JSON format
+          if (payloadStr.startsWith('{')) {
+            const data = JSON.parse(payloadStr);
+            if (typeof data === 'object') {
+              if (typeof data.pressure === 'number' && typeof data.soilTemp === 'number') {
+                setSensors(prev => ({
+                  pressure: data.pressure ?? prev.pressure,
+                  soilTemp: data.soilTemp ?? prev.soilTemp,
+                  soilHumidity: data.soilHumidity ?? prev.soilHumidity,
+                  waterLevel: data.waterLevel ?? prev.waterLevel,
+                  airTemp: data.airTemp ?? prev.airTemp,
+                  airHumidity: data.airHumidity ?? prev.airHumidity,
+                }));
+                setDataSource('mqtt-json');
+                addLog(`✅ JSON data updated`);
+              }
             }
           }
-        } catch {}
+          // Check if it's simple STM32 format: "STM32_DATA_P701_ST21_SH52_WL12_AT26_AH62_C1"
+          else if (payloadStr.includes('STM32_DATA_') || payloadStr.includes('P') && payloadStr.includes('_')) {
+            const cleanData = payloadStr.replace('STM32_DATA_', '');
+            
+            // Parse simple format: P701_ST21_SH52_WL12_AT26_AH62_C1
+            const pressure = cleanData.match(/P(\d+)/)?.[1];
+            const soilTemp = cleanData.match(/ST(\d+)/)?.[1];
+            const soilHumidity = cleanData.match(/SH(\d+)/)?.[1];
+            const waterLevel = cleanData.match(/WL(\d+)/)?.[1];
+            const airTemp = cleanData.match(/AT(\d+)/)?.[1];
+            const airHumidity = cleanData.match(/AH(\d+)/)?.[1];
+            const counter = cleanData.match(/C(\d+)/)?.[1];
+            
+            if (pressure && soilTemp) {
+              setSensors(prev => ({
+                pressure: parseInt(pressure) || prev.pressure,
+                soilTemp: parseInt(soilTemp) || prev.soilTemp,
+                soilHumidity: parseInt(soilHumidity || '0') || prev.soilHumidity,
+                waterLevel: parseInt(waterLevel || '0') || prev.waterLevel,
+                airTemp: parseInt(airTemp || '0') || prev.airTemp,
+                airHumidity: parseInt(airHumidity || '0') || prev.airHumidity,
+              }));
+              setDataSource('stm32-simple');
+              addLog(`✅ STM32 simple data updated (reading #${counter || '0'})`);
+            }
+          }
+          // Check if it's ultra-short STM32 format: "P701T21H52W12A26H62"
+          else if (payloadStr.match(/^P\d+T\d+H\d+W\d+A\d+H\d+$/)) {
+            // Parse ultra-short format: P701T21H52W12A26H62
+            const pressure = payloadStr.match(/P(\d+)/)?.[1];
+            const soilTemp = payloadStr.match(/T(\d+)/)?.[1];
+            const soilHumidity = payloadStr.match(/H(\d+)/)?.[1];
+            const waterLevel = payloadStr.match(/W(\d+)/)?.[1];
+            const airTemp = payloadStr.match(/A(\d+)/)?.[1];
+            const airHumidity = payloadStr.match(/H(\d+)$/)?.[1];  // Last H for air humidity
+            
+            if (pressure && soilTemp) {
+              setSensors(prev => ({
+                pressure: parseInt(pressure) || prev.pressure,
+                soilTemp: parseInt(soilTemp) || prev.soilTemp,
+                soilHumidity: parseInt(soilHumidity || '0') || prev.soilHumidity,
+                waterLevel: parseInt(waterLevel || '0') || prev.waterLevel,
+                airTemp: parseInt(airTemp || '0') || prev.airTemp,
+                airHumidity: parseInt(airHumidity || '0') || prev.airHumidity,
+              }));
+              setDataSource('stm32-ultra');
+              addLog(`✅ STM32 ultra-short data updated: P${pressure} T${soilTemp} W${waterLevel || '0'}`);
+            }
+          }
+          // Check if it's new STM32 comprehensive format: "st=25,at=27,sh=65,ah=55,p=825,wl=18,c=1"
+          else if (payloadStr.includes('st=') && payloadStr.includes('at=') && payloadStr.includes('p=')) {
+            // Parse comprehensive format: st=25,at=27,sh=65,ah=55,p=825,wl=18,c=1
+            const soilTemp = payloadStr.match(/st=(\d+)/)?.[1];
+            const airTemp = payloadStr.match(/at=(\d+)/)?.[1];
+            const soilHum = payloadStr.match(/sh=(\d+)/)?.[1];
+            const airHum = payloadStr.match(/ah=(\d+)/)?.[1];
+            const pressure = payloadStr.match(/p=(\d+)/)?.[1];
+            const waterLevel = payloadStr.match(/wl=(\d+)/)?.[1];
+            const count = payloadStr.match(/c=(\d+)/)?.[1];
+            
+            if (soilTemp && airTemp && pressure) {
+              setSensors(prev => ({
+                pressure: parseInt(pressure) || prev.pressure,
+                soilTemp: parseInt(soilTemp) || prev.soilTemp,
+                soilHumidity: parseInt(soilHum || '0') || prev.soilHumidity,
+                waterLevel: parseInt(waterLevel || '0') || prev.waterLevel,
+                airTemp: parseInt(airTemp) || prev.airTemp,
+                airHumidity: parseInt(airHum || '0') || prev.airHumidity,
+              }));
+              setDataSource('stm32-comprehensive');
+              addLog(`✅ STM32 comprehensive data: ST${soilTemp}°C AT${airTemp}°C P${pressure} WL${waterLevel}cm (msg #${count || '?'})`);
+            }
+          }
+          // Check if it's simple STM32 compact format: "temp=25.1,hum=60,count=1" (legacy support)
+          else if (payloadStr.includes('temp=') && payloadStr.includes('hum=')) {
+            // Parse compact format: temp=25.1,hum=60,count=1
+            const temp = payloadStr.match(/temp=(\d+\.?\d*)/)?.[1];
+            const hum = payloadStr.match(/hum=(\d+)/)?.[1];
+            const count = payloadStr.match(/count=(\d+)/)?.[1];
+            
+            if (temp && hum) {
+              setSensors(prev => ({
+                pressure: prev.pressure, // Keep previous value
+                soilTemp: Math.round(parseFloat(temp)) || prev.soilTemp,
+                soilHumidity: parseInt(hum) || prev.soilHumidity,
+                waterLevel: prev.waterLevel, // Keep previous value
+                airTemp: Math.round(parseFloat(temp)) || prev.airTemp, // Use same temp for air
+                airHumidity: parseInt(hum) || prev.airHumidity, // Use same humidity for air
+              }));
+              setDataSource('stm32-compact');
+              addLog(`✅ STM32 compact data updated: T${temp}°C H${hum}% (msg #${count || '?'})`);
+            }
+          }
+          // Check if it's STM32 status format: "status=online,uptime=145"
+          else if (payloadStr.includes('status=') && payloadStr.includes('uptime=')) {
+            const status = payloadStr.match(/status=(\w+)/)?.[1];
+            const uptime = payloadStr.match(/uptime=(\d+)/)?.[1];
+            
+            if (status && uptime) {
+              addLog(`📊 STM32 Status: ${status.toUpperCase()}, uptime: ${uptime}s`);
+              // Only set to status if we don't have active telemetry data
+              if (dataSource !== 'stm32-comprehensive' && dataSource !== 'stm32-compact') {
+                setDataSource('stm32-status');
+              }
+            }
+          }
+          else {
+            addLog(`⚠️ Unknown data format: ${payloadStr}`);
+          }
+          
+          // Remove setLastDataReceived since we removed the state
+        } catch (parseError) {
+          addLog(`❌ Failed to parse data: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`);
+          addLog(`Raw payload: ${payload.toString()}`);
+        }
       }
     });
 
@@ -260,11 +416,8 @@ export default function IrrigationControl() {
         }
       } catch (error) {
         addLog(`API Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        // Simulate for testing
-        setPumps(prev => ({
-          ...prev,
-          [type === 'pompa' ? 'irrigation' : 'suction']: !prev[type === 'pompa' ? 'irrigation' : 'suction']
-        }));
+        // Don't simulate pump control - only use MQTT or wait for API
+        addLog('Pump control failed - waiting for MQTT or API connection');
       }
     }
     
@@ -315,7 +468,14 @@ export default function IrrigationControl() {
               <span className="text-sm font-medium text-gray-800">
                 {mqttConnected ? 'MQTT Connected' : dataSource === 'fallback' ? 'Offline Mode' : 'Simulation Mode'}
               </span>
-              <span className="text-xs text-gray-500">{dataSource}</span>
+              <span className="text-xs text-gray-500">
+                {dataSource === 'stm32-comprehensive' ? '🌡️ STM32 Full Sensors' :
+                 dataSource === 'stm32-compact' ? '🚀 STM32 Live Data' : 
+                 dataSource === 'stm32-status' ? '📊 STM32 Status' :
+                 dataSource === 'mqtt-test' ? '🧪 MQTT Test' : 
+                 dataSource === 'mqtt-json' ? '📊 JSON Data' :
+                 dataSource === 'awaiting-mqtt' ? '⏳ Waiting...' : dataSource}
+              </span>
             </div>
           </div>
           <div className="flex items-center gap-2">
