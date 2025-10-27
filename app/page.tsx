@@ -133,8 +133,16 @@ export default function IrrigationControl() {
 
   // Initialize MQTT (WS) connection to test.mosquitto.org
   useEffect(() => {
-    const MQTT_WS_URL = process.env.NEXT_PUBLIC_MQTT_BROKER_URL || 'ws://test.mosquitto.org:8080';
+    // Auto-detect secure/insecure WebSocket based on page protocol
+    const isSecure = typeof window !== 'undefined' && window.location.protocol === 'https:';
+    const defaultBroker = isSecure 
+      ? 'wss://test.mosquitto.org:8081'  // Secure WebSocket for HTTPS
+      : 'ws://test.mosquitto.org:8080';   // Regular WebSocket for HTTP
+    
+    const MQTT_WS_URL = process.env.NEXT_PUBLIC_MQTT_BROKER_URL || defaultBroker;
     const TOPIC_TELEMETRY = process.env.NEXT_PUBLIC_MQTT_TOPIC || 'telemetry/stm32/data';
+
+    addLog(`🔌 Connecting to MQTT: ${MQTT_WS_URL}`);
 
     // Updated client configuration for test.mosquitto.org
     const client = mqtt.connect(MQTT_WS_URL, {
@@ -143,7 +151,6 @@ export default function IrrigationControl() {
       clean: true,
       connectTimeout: 10000,
       keepalive: 60,
-      protocol: 'ws',
       protocolVersion: 4, // MQTT 3.1.1
     });
 
