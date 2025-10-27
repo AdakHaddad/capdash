@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import mqtt, { MqttClient } from 'mqtt';
+import ShallotAvatar from './components/ShallotAvatar';
 
 interface Sensors {
   pressure: number;
@@ -132,17 +133,12 @@ export default function IrrigationControl() {
 
   // Initialize MQTT (WS) connection to test.mosquitto.org
   useEffect(() => {
-    const MQTT_WS_URL = 'ws://test.mosquitto.org:8080';
-    const USERNAME = null; // No authentication needed
-    const PASSWORD = null;
-    const DEVICE_ID = 'stm32-01';
-    const TOPIC_TELEMETRY = `telemetry/stm32/data`;
+    const MQTT_WS_URL = process.env.NEXT_PUBLIC_MQTT_BROKER_URL || 'ws://test.mosquitto.org:8080';
+    const TOPIC_TELEMETRY = process.env.NEXT_PUBLIC_MQTT_TOPIC || 'telemetry/stm32/data';
 
     // Updated client configuration for test.mosquitto.org
     const client = mqtt.connect(MQTT_WS_URL, {
       clientId: 'NextJS_WebClient_' + Math.random().toString(16).substring(2, 8),
-      username: USERNAME,
-      password: PASSWORD,
       reconnectPeriod: 2000,
       clean: true,
       connectTimeout: 10000,
@@ -163,6 +159,7 @@ export default function IrrigationControl() {
         const topics = [
           TOPIC_TELEMETRY,
           'telemetry/stm32/status',
+          'telemetry/stm32/pump_status',
           'test'
         ];
         
@@ -207,10 +204,35 @@ export default function IrrigationControl() {
     });
 
     client.on('message', (topic, payload) => {
-      if (topic === TOPIC_TELEMETRY || topic === 'telemetry/stm32/status' || topic === 'test') {  // Support all topics
+      if (topic === TOPIC_TELEMETRY || topic === 'telemetry/stm32/status' || topic === 'telemetry/stm32/pump_status' || topic === 'test') {  // Support all topics
         try {
           const payloadStr = payload.toString();
           addLog(`📨 Received on ${topic}: ${payloadStr}`);
+          
+          // Handle pump status updates
+          if (topic === 'telemetry/stm32/pump_status') {
+            if (payloadStr.includes('pump_irrigation=')) {
+              const irrigationState = payloadStr.match(/pump_irrigation=(\w+)/)?.[1];
+              if (irrigationState) {
+                setPumps(prev => ({
+                  ...prev,
+                  irrigation: irrigationState === 'ON'
+                }));
+                addLog(`🚰 Irrigation pump: ${irrigationState}`);
+              }
+            }
+            if (payloadStr.includes('pump_suction=')) {
+              const suctionState = payloadStr.match(/pump_suction=(\w+)/)?.[1];
+              if (suctionState) {
+                setPumps(prev => ({
+                  ...prev,
+                  suction: suctionState === 'ON'
+                }));
+                addLog(`🔄 Suction pump: ${suctionState}`);
+              }
+            }
+            return; // Don't process further for pump status
+          }
           
           // If it's just a simple test message (like "STM32_OK" or "Hello")
           if (topic === 'test') {
@@ -365,7 +387,7 @@ export default function IrrigationControl() {
       } catch {}
       mqttClientRef.current = null;
     };
-  }, [addLog]);
+  }, [addLog, dataSource]);
 
   // Publish pump control over MQTT if connected
   const publishPumpControl = useCallback((type: string) => {
@@ -437,14 +459,19 @@ export default function IrrigationControl() {
     }
   };
 
-  // Auto-refresh option
+  // Auto-refresh option - only fetch from API if MQTT is not connected
   useEffect(() => {
+    // Don't poll API if we have MQTT connection
+    if (mqttConnected) {
+      return;
+    }
+    
     const interval = setInterval(() => {
       fetchSensorData();
     }, 5000);
     
     return () => clearInterval(interval);
-  }, [fetchSensorData]);
+  }, [fetchSensorData, mqttConnected]);
 
   return (
     <div className="min-h-screen bg-white flex items-start justify-center p-2 md:p-4 lg:p-6">
@@ -488,8 +515,20 @@ export default function IrrigationControl() {
           </div>
       </div>
 
+        {/* Living Shallot Avatar - Embedded */}
+        <div className="flex justify-center md:col-span-1 mb-4 md:mb-0">
+          <div className="w-40 h-48 md:w-48 md:h-56">
+            <ShallotAvatar
+              airTemp={sensors.airTemp}
+              airHumidity={sensors.airHumidity}
+              soilHumidity={sensors.soilHumidity}
+              soilTemp={sensors.soilTemp}
+            />
+          </div>
+        </div>
+
         {/* Sensor Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-4 md:mb-6 md:col-span-2">
+        <div className="grid grid-cols-2 gap-3 md:gap-4 mb-4 md:mb-6 md:col-span-1">
           {/* Pressure Sensor */}
           <div className="p-2">
             <div className="text-xs text-gray-600 mb-2 flex items-center gap-1">
@@ -525,41 +564,59 @@ export default function IrrigationControl() {
           </div>
         </div>
 
-        {/* Status Section */}
-        <div className="p-4 mb-4 md:mb-0 md:col-span-1">
-          <div className="flex justify-between items-center py-3 border-b border-gray-100">
-            <div>
-              <div className="text-sm font-medium text-gray-800">Status Pompa Irigasi</div>
-      </div>
-            <span className={`px-3 py-1 rounded-full text-[10px] font-medium uppercase border ${
-              pumps.irrigation ? 'border-green-500 text-green-700' : 'border-red-500 text-red-700'
+        {/* Status Section - Compact */}
+        <div className="md:col-span-1 mb-4 md:mb-0">
+          {/* Pump Status Cards */}
+          <div className="grid grid-cols-2 gap-2 mb-3">
+            {/* Irrigation Pump Card */}
+            <div className={`p-3 rounded-lg border-2 transition-all duration-300 ${
+              pumps.irrigation 
+                ? 'bg-green-50 border-green-300 shadow-green-100 shadow-md' 
+                : 'bg-gray-50 border-gray-200'
             }`}>
-            {pumps.irrigation ? 'ON' : 'OFF'}
-          </span>
-        </div>
-          <div className="flex justify-between items-center py-3 border-b border-gray-100">
-            <div>
-              <div className="text-sm font-medium text-gray-800">Status Pompa Sedot</div>
+              <div className="text-xl mb-1">💧</div>
+              <div className="text-[10px] text-gray-600 mb-0.5">Irigasi</div>
+              <div className={`text-base font-bold ${
+                pumps.irrigation ? 'text-green-700' : 'text-gray-500'
+              }`}>
+                {pumps.irrigation ? 'ON' : 'OFF'}
+              </div>
             </div>
-            <span className={`px-3 py-1 rounded-full text-[10px] font-medium uppercase border ${
-              pumps.suction ? 'border-green-500 text-green-700' : 'border-red-500 text-red-700'
+
+            {/* Suction Pump Card */}
+            <div className={`p-3 rounded-lg border-2 transition-all duration-300 ${
+              pumps.suction 
+                ? 'bg-blue-50 border-blue-300 shadow-blue-100 shadow-md' 
+                : 'bg-gray-50 border-gray-200'
             }`}>
-            {pumps.suction ? 'ON' : 'OFF'}
-          </span>
-        </div>
-          <div className="flex justify-between items-center py-3">
-            <div>
-              <div className="text-sm font-medium text-gray-800">Pompa selanjutnya: Hari ini,</div>
-              <div className="text-xs text-gray-600 mt-1">18:00</div>
+              <div className="text-xl mb-1">🔄</div>
+              <div className="text-[10px] text-gray-600 mb-0.5">Sedot</div>
+              <div className={`text-base font-bold ${
+                pumps.suction ? 'text-blue-700' : 'text-gray-500'
+              }`}>
+                {pumps.suction ? 'ON' : 'OFF'}
+              </div>
             </div>
-            <button 
-              className="bg-gray-900 text-white px-7 py-3.5 rounded-xl text-base font-semibold cursor-pointer transition-all duration-300 shadow-lg hover:bg-gray-700 hover:-translate-y-0.5 hover:shadow-xl active:translate-y-0"
-              onClick={() => setShowPopup(true)}
-            >
-              Kontrol Manual
+          </div>
+
+          {/* Next Schedule Card */}
+          <div className="p-3 bg-gradient-to-br from-orange-50 to-yellow-50 border-2 border-orange-200 rounded-lg mb-3">
+            <div className="flex items-center gap-1.5 mb-1">
+              <span className="text-base">⏰</span>
+              <div className="text-xs font-semibold text-gray-800">Jadwal Berikutnya</div>
+            </div>
+            <div className="text-base font-bold text-orange-700">18:00 - Irigasi 20 menit</div>
+          </div>
+
+          {/* Control Button */}
+          <button 
+            className="w-full bg-gradient-to-r from-gray-800 to-gray-900 text-white px-4 py-3 rounded-lg text-sm font-bold cursor-pointer transition-all duration-300 shadow-md hover:from-gray-700 hover:to-gray-800 hover:-translate-y-0.5 hover:shadow-lg active:translate-y-0 flex items-center justify-center gap-2"
+            onClick={() => setShowPopup(true)}
+          >
+            <span className="text-lg">🎮</span>
+            Kontrol Manual
           </button>
         </div>
-      </div>
 
         {/* Weather Alert */}
         <div className="p-3 mb-4 md:col-span-3">
