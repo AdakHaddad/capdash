@@ -62,6 +62,7 @@ export default function IrrigationControl() {
   const [inference, setInference] = useState<Inference | null>(null);
   const [dataSource, setDataSource] = useState<string>('unknown');
   const [mqttConnected, setMqttConnected] = useState<boolean>(false);
+  const [mqttStatus, setMqttStatus] = useState<string>('disconnected');
   const [showPopup, setShowPopup] = useState(false);
   const [, setLogs] = useState<string[]>(['System initialized']);
   const [, setLoading] = useState(false);
@@ -70,6 +71,7 @@ export default function IrrigationControl() {
 
   // MQTT client reference (persist across renders)
   const mqttClientRef = useRef<MqttClient | null>(null);
+  const lastHeartbeatRef = useRef<number>(Date.now());
 
   // API base URL - can be switched between backends
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE || 'http://localhost:3001';
@@ -142,7 +144,14 @@ export default function IrrigationControl() {
     const MQTT_WS_URL = process.env.NEXT_PUBLIC_MQTT_BROKER_URL || defaultBroker;
     const TOPIC_TELEMETRY = process.env.NEXT_PUBLIC_MQTT_TOPIC || 'telemetry/stm32/data';
 
+    console.log(`🌐 Page Protocol: ${window.location.protocol}`);
+    console.log(`🔌 MQTT Broker: ${MQTT_WS_URL}`);
     addLog(`🔌 Connecting to MQTT: ${MQTT_WS_URL}`);
+    
+    if (isSecure && MQTT_WS_URL.startsWith('ws://')) {
+      console.error('⚠️ WARNING: Using insecure WebSocket (ws://) on HTTPS page - this will be blocked by browser!');
+      addLog('⚠️ WARNING: Insecure WebSocket blocked by browser security');
+    }
 
     // Updated client configuration for test.mosquitto.org
     const client = mqtt.connect(MQTT_WS_URL, {
@@ -158,6 +167,9 @@ export default function IrrigationControl() {
 
     client.on('connect', (connack) => {
       setMqttConnected(true);
+      setMqttStatus('connected');
+      lastHeartbeatRef.current = Date.now();
+      console.log('✅ MQTT Connected:', connack);
       addLog('✅ MQTT connected to test.mosquitto.org');
       addLog(`Connection info: ${JSON.stringify(connack)}`);
       
@@ -167,35 +179,45 @@ export default function IrrigationControl() {
           TOPIC_TELEMETRY,
           'telemetry/stm32/status',
           'telemetry/stm32/pump_status',
+          'capdash/pump/cmd/set',
           'test'
         ];
         
         topics.forEach(topic => {
           client.subscribe(topic, { qos: 1 }, (err, granted) => {
             if (err) {
+              console.error(`❌ Subscribe failed for ${topic}:`, err);
               addLog(`❌ Subscribe failed for ${topic}: ${err.message}`);
             } else {
+              console.log(`✅ Subscribed to ${topic} (QoS: ${granted?.[0]?.qos || 0})`);
               addLog(`✅ Subscribed to ${topic} (QoS: ${granted?.[0]?.qos || 0})`);
             }
           });
         });
         
       } catch (e) {
+        console.error('❌ Subscribe error:', e);
         addLog(`❌ Subscribe error: ${e instanceof Error ? e.message : 'Unknown error'}`);
       }
     });
 
     client.on('reconnect', () => {
+      setMqttStatus('reconnecting');
+      console.log('🔄 MQTT reconnecting...');
       addLog('🔄 MQTT reconnecting...');
     });
 
     client.on('close', () => {
       setMqttConnected(false);
+      setMqttStatus('disconnected');
+      console.log('🔌 MQTT connection closed');
       addLog('🔌 MQTT connection closed');
     });
 
     client.on('error', (err) => {
       setMqttConnected(false);
+      setMqttStatus('error');
+      console.error('❌ MQTT Error:', err);
       addLog(`❌ MQTT error: ${err?.message || String(err)}`);
       console.error('MQTT Error Details:', err);
     });
@@ -399,29 +421,66 @@ export default function IrrigationControl() {
   // Publish pump control over MQTT if connected
   const publishPumpControl = useCallback((type: string) => {
     const client = mqttClientRef.current;
-    if (!client || !client.connected) {
+    
+    // Check if client exists and is actually connected
+    if (!client) {
+      console.warn('❌ MQTT client not initialized');
+      addLog('❌ MQTT client not initialized');
       return false;
     }
+    
+    if (!client.connected) {
+      console.warn('❌ MQTT client not connected. State:', client.reconnecting ? 'reconnecting' : 'disconnected');
+      addLog(`❌ MQTT not connected (state: ${client.reconnecting ? 'reconnecting' : 'disconnected'})`);
+      return false;
+    }
+    
     const topic = 'capdash/pump/cmd/set';
-    const payload = JSON.stringify({ action: type, source: 'nextjs', ts: new Date().toISOString() });
+    const payload = JSON.stringify({ 
+      action: type, 
+      source: 'nextjs', 
+      ts: new Date().toISOString() 
+    });
+    
     try {
-      client.publish(topic, payload, { qos: 1, retain: false });
-      addLog(`MQTT published → ${topic}: ${payload}`);
+      console.log(`📤 Publishing to ${topic}:`, payload);
+      client.publish(topic, payload, { qos: 1, retain: false }, (err) => {
+        if (err) {
+          console.error('❌ MQTT publish error:', err);
+          addLog(`❌ MQTT publish failed: ${err.message}`);
+        } else {
+          console.log('✅ MQTT publish successful');
+          addLog(`✅ MQTT published → ${topic}: ${payload}`);
+        }
+      });
       return true;
     } catch (e) {
-      addLog(`MQTT publish failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+      console.error('❌ MQTT publish exception:', e);
+      addLog(`❌ MQTT publish failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
       return false;
     }
   }, [addLog]);
 
   // Control pump
   const controlPump = async (type: string) => {
-    addLog(`Control pump: ${type}`);
+    console.log(`🎛️ Control pump requested: ${type}`);
+    addLog(`🎛️ Control pump: ${type}`);
+    
+    // Check MQTT connection status first
+    const client = mqttClientRef.current;
+    console.log('MQTT Client State:', {
+      exists: !!client,
+      connected: client?.connected,
+      reconnecting: client?.reconnecting
+    });
     
     // Prefer MQTT publish; if not connected, fall back to API
     const sentViaMqtt = publishPumpControl(type);
 
     if (!sentViaMqtt) {
+      console.log('⚠️ MQTT failed, trying API fallback...');
+      addLog('⚠️ MQTT unavailable, using API...');
+      
       try {
         const response = await fetch(`${API_BASE}/api/control`, {
           method: 'POST',
@@ -432,22 +491,29 @@ export default function IrrigationControl() {
           })
         });
         
+        if (!response.ok) {
+          throw new Error(`API returned ${response.status}: ${response.statusText}`);
+        }
+        
         const result = await response.json();
+        console.log('API Response:', result);
         
         if (result.success) {
           setPumps(prev => ({
             ...prev,
             [type === 'pompa' ? 'irrigation' : 'suction']: result.new_state
           }));
-          addLog(`${result.message}`);
+          addLog(`✅ ${result.message}`);
         } else {
-          addLog(`Control failed: ${result.message}`);
+          addLog(`❌ Control failed: ${result.message}`);
         }
       } catch (error) {
-        addLog(`API Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-        // Don't simulate pump control - only use MQTT or wait for API
-        addLog('Pump control failed - waiting for MQTT or API connection');
+        console.error('API Error:', error);
+        addLog(`❌ API Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        addLog('❌ Cannot control pump - MQTT and API both unavailable');
       }
+    } else {
+      console.log('✅ Command sent via MQTT');
     }
     
     setShowPopup(false);
@@ -490,17 +556,24 @@ export default function IrrigationControl() {
             <div className={`w-6 h-6 rounded-full relative shadow-lg ${
               mqttConnected 
                 ? 'bg-gradient-to-r from-green-400 to-green-500 shadow-green-400/50' 
+                : mqttStatus === 'reconnecting'
+                ? 'bg-gradient-to-r from-blue-400 to-blue-500 shadow-blue-400/50'
                 : 'bg-gradient-to-r from-yellow-400 to-orange-500 shadow-yellow-400/50'
             }`}>
               <div className={`absolute inset-[-8px] rounded-full animate-spin opacity-50 ${
                 mqttConnected 
                   ? 'bg-gradient-to-r from-transparent via-green-400 to-transparent'
+                  : mqttStatus === 'reconnecting'
+                  ? 'bg-gradient-to-r from-transparent via-blue-400 to-transparent'
                   : 'bg-gradient-to-r from-transparent via-yellow-400 to-transparent'
               }`}></div>
             </div>
             <div className="flex flex-col">
               <span className="text-sm font-medium text-gray-800">
-                {mqttConnected ? 'MQTT Connected' : dataSource === 'fallback' ? 'Offline Mode' : 'Simulation Mode'}
+                {mqttConnected ? '🟢 MQTT Connected' : 
+                 mqttStatus === 'reconnecting' ? '🔄 Reconnecting...' :
+                 mqttStatus === 'error' ? '🔴 Connection Error' :
+                 dataSource === 'fallback' ? 'Offline Mode' : 'Simulation Mode'}
               </span>
               <span className="text-xs text-gray-500">
                 {dataSource === 'stm32-comprehensive' ? '🌡️ STM32 Full Sensors' :
