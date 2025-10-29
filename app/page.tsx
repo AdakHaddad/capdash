@@ -48,12 +48,12 @@ export default function IrrigationControl() {
   // "Happy" fallback defaults used when no realtime data is available
   const [sensors, setSensors] = useState<Sensors>({
     // Typical comfortable environmental values for a healthy plant
-    pressure: 1013,
-    soilTemp: 22,
-    soilHumidity: 45,
-    waterLevel: 40,
-    airTemp: 24,
-    airHumidity: 50
+    pressure: 825,
+    soilTemp: 25,
+    soilHumidity: 70,
+    waterLevel: 10,
+    airTemp: 27,
+    airHumidity: 65
   });
 
   // Default pumps state for safe/fallback behaviour: irrigation OFF
