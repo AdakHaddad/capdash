@@ -45,17 +45,20 @@ interface ApiResponse {
 }
 
 export default function IrrigationControl() {
+  // "Happy" fallback defaults used when no realtime data is available
   const [sensors, setSensors] = useState<Sensors>({
-    pressure: 800,
-    soilTemp: 35,
-    soilHumidity: 75,
-    waterLevel: 15,
-    airTemp: 35,
-    airHumidity: 75
+    // Typical comfortable environmental values for a healthy plant
+    pressure: 1013,
+    soilTemp: 22,
+    soilHumidity: 45,
+    waterLevel: 40,
+    airTemp: 24,
+    airHumidity: 50
   });
 
+  // Default pumps state for safe/fallback behaviour: irrigation OFF
   const [pumps, setPumps] = useState<Pumps>({
-    irrigation: true,
+    irrigation: false,
     suction: false
   });
 
