@@ -1,0 +1,165 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import mqtt, { MqttClient } from 'mqtt';
+
+interface TelemetryData {
+  pressure: number;
+  soilTemp: number;
+  soilHumidity: number;
+  waterLevel: number;
+  airTemp: number;
+  airHumidity: number;
+  timestamp: string;
+}
+
+export default function MqttClientWidget() {
+  const [messages, setMessages] = useState<string[]>([]);
+  const [telemetryData, setTelemetryData] = useState<TelemetryData | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<string>('Connecting...');
+  const deviceId = 'stm32-01'; // keep in sync with STM32
+  const topicTelemetry = `devices/${deviceId}/telemetry`;
+  // Remove unused topicCommands to fix lint warning
+  // const topicCommands = `devices/${deviceId}/commands`;
+
+  useEffect(() => {
+    const url = 'wss://b2a051ac43c4410e86861ed01b937dec.s1.eu.hivemq.cloud:8884/mqtt';
+    const clientId = 'web-' + Math.random().toString(16).slice(2);
+
+    const client: MqttClient = mqtt.connect(url, {
+      protocol: 'wss',
+      username: 'user1',
+      password: 'P@ssw0rd',
+      clientId,
+      clean: true,
+      reconnectPeriod: 2000,
+    });
+
+    client.on('connect', () => {
+      console.log('MQTT Connected');
+      setConnectionStatus('Connected');
+      client.subscribe(topicTelemetry, { qos: 1 });
+    });
+
+    client.on('message', (topic, payload) => {
+      const message = payload.toString();
+      console.log(`Received: ${topic} - ${message}`);
+      
+      // Add to messages list
+      setMessages(prev => [`${new Date().toLocaleTimeString()}: ${topic}: ${message}`, ...prev].slice(0, 50));
+      
+      // Parse telemetry data if it's from the telemetry topic
+      if (topic === topicTelemetry) {
+        try {
+          const data = JSON.parse(message);
+          setTelemetryData({
+            ...data,
+            timestamp: new Date().toLocaleString()
+          });
+        } catch (error) {
+          console.error('Failed to parse telemetry data:', error);
+        }
+      }
+    });
+
+    client.on('error', (err) => {
+      console.error('MQTT error', err);
+      setConnectionStatus('Error: ' + err.message);
+    });
+
+    client.on('close', () => {
+      setConnectionStatus('Disconnected');
+    });
+
+    client.on('reconnect', () => {
+      setConnectionStatus('Reconnecting...');
+    });
+
+    return () => {
+      try {
+        client.end(true);
+      } catch {}
+    };
+  }, [topicTelemetry]); // Added missing dependency
+
+  const sendCommand = (cmd: unknown) => {
+    const url = 'wss://b2a051ac43c4410e86861ed01b937dec.s1.eu.hivemq.cloud:8884/mqtt';
+    const clientId = 'web-pub-' + Math.random().toString(16).slice(2);
+    const client = mqtt.connect(url, {
+      protocol: 'wss',
+      username: 'user1',
+      password: 'P@ssw0rd',
+      clientId,
+      clean: true,
+      reconnectPeriod: 0,
+    });
+    client.on('connect', () => {
+      client.publish(`devices/${deviceId}/commands`, JSON.stringify(cmd), { qos: 1 }, () => {
+        client.end(true);
+      });
+    });
+  };
+
+  return (
+    <div style={{ padding: 16, fontFamily: 'Arial, sans-serif' }}>
+      <h2>STM32 IoT Dashboard</h2>
+      
+      {/* Connection Status */}
+      <div style={{ marginBottom: 16, padding: 8, backgroundColor: connectionStatus === 'Connected' ? '#d4edda' : '#f8d7da', borderRadius: 4 }}>
+        <strong>Status:</strong> {connectionStatus}
+      </div>
+
+      {/* Control Buttons */}
+      <div style={{ marginBottom: 16 }}>
+        <button 
+          onClick={() => sendCommand({ led: 'on' })}
+          style={{ padding: '8px 16px', marginRight: 8, backgroundColor: '#28a745', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer' }}
+        >
+          Turn LED On
+        </button>
+        <button 
+          onClick={() => sendCommand({ led: 'off' })}
+          style={{ padding: '8px 16px', backgroundColor: '#dc3545', color: 'white', border: 'none', borderRadius: 4, cursor: 'pointer' }}
+        >
+          Turn LED Off
+        </button>
+      </div>
+
+      {/* Telemetry Data Display */}
+      {telemetryData && (
+        <div style={{ marginBottom: 16, padding: 16, backgroundColor: '#f8f9fa', borderRadius: 8, border: '1px solid #dee2e6' }}>
+          <h3>Latest Sensor Data</h3>
+          <p><strong>Last Updated:</strong> {telemetryData.timestamp}</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
+            <div>
+              <strong>Air Temperature:</strong> {telemetryData.airTemp}°C
+            </div>
+            <div>
+              <strong>Air Humidity:</strong> {telemetryData.airHumidity}%
+            </div>
+            <div>
+              <strong>Soil Temperature:</strong> {telemetryData.soilTemp}°C
+            </div>
+            <div>
+              <strong>Soil Humidity:</strong> {telemetryData.soilHumidity}%
+            </div>
+            <div>
+              <strong>Water Level:</strong> {telemetryData.waterLevel}%
+            </div>
+            <div>
+              <strong>Pressure:</strong> {telemetryData.pressure} hPa
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Raw Messages */}
+      <div>
+        <h3>Raw MQTT Messages</h3>
+        <div style={{ backgroundColor: '#f8f9fa', padding: 12, borderRadius: 4, maxHeight: 300, overflowY: 'auto', fontFamily: 'monospace', fontSize: '12px' }}>
+          {messages.length === 0 ? 'No messages received yet...' : messages.join('\n')}
+        </div>
+      </div>
+    </div>
+  );
+}
