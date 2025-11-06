@@ -4,12 +4,21 @@ import { useEffect, useState } from 'react';
 import mqtt, { MqttClient } from 'mqtt';
 
 interface TelemetryData {
-  pressure: number;
-  soilTemp: number;
-  soilHumidity: number;
-  waterLevel: number;
-  airTemp: number;
-  airHumidity: number;
+  ts: number;
+  bme_t: number;
+  bme_p: number;
+  bme_h: number;
+  ds_t: number[];
+  soil0: number;
+  soil1: number;
+  soil2: number;
+  water1: number;
+  water2: number;
+  valve1: boolean;
+  valve2: boolean;
+  valve3: boolean;
+  pump1: boolean;
+  pump2: boolean;
   timestamp: string;
 }
 
@@ -17,10 +26,8 @@ export default function MqttClientWidget() {
   const [messages, setMessages] = useState<string[]>([]);
   const [telemetryData, setTelemetryData] = useState<TelemetryData | null>(null);
   const [connectionStatus, setConnectionStatus] = useState<string>('Connecting...');
-  const deviceId = 'stm32-01'; // keep in sync with STM32
-  const topicTelemetry = `devices/${deviceId}/telemetry`;
-  // Remove unused topicCommands to fix lint warning
-  // const topicCommands = `devices/${deviceId}/commands`;
+  const topicTelemetry = 'd02/telemetry';
+  const topicCommands = 'd02/commands';
 
   useEffect(() => {
     const url = 'wss://b2a051ac43c4410e86861ed01b937dec.s1.eu.hivemq.cloud:8884/mqtt';
@@ -80,7 +87,7 @@ export default function MqttClientWidget() {
         client.end(true);
       } catch {}
     };
-  }, [topicTelemetry]); // Added missing dependency
+  }, [topicTelemetry]);
 
   const sendCommand = (cmd: unknown) => {
     const url = 'wss://b2a051ac43c4410e86861ed01b937dec.s1.eu.hivemq.cloud:8884/mqtt';
@@ -94,7 +101,7 @@ export default function MqttClientWidget() {
       reconnectPeriod: 0,
     });
     client.on('connect', () => {
-      client.publish(`devices/${deviceId}/commands`, JSON.stringify(cmd), { qos: 1 }, () => {
+      client.publish(topicCommands, JSON.stringify(cmd), { qos: 1 }, () => {
         client.end(true);
       });
     });
@@ -131,24 +138,21 @@ export default function MqttClientWidget() {
           <h3>Latest Sensor Data</h3>
           <p><strong>Last Updated:</strong> {telemetryData.timestamp}</p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
-            <div>
-              <strong>Air Temperature:</strong> {telemetryData.airTemp}°C
-            </div>
-            <div>
-              <strong>Air Humidity:</strong> {telemetryData.airHumidity}%
-            </div>
-            <div>
-              <strong>Soil Temperature:</strong> {telemetryData.soilTemp}°C
-            </div>
-            <div>
-              <strong>Soil Humidity:</strong> {telemetryData.soilHumidity}%
-            </div>
-            <div>
-              <strong>Water Level:</strong> {telemetryData.waterLevel}%
-            </div>
-            <div>
-              <strong>Pressure:</strong> {telemetryData.pressure} hPa
-            </div>
+            <div><strong>Device Timestamp:</strong> {telemetryData.ts}</div>
+            <div><strong>Air Temperature:</strong> {telemetryData.bme_t}°C</div>
+            <div><strong>Air Humidity:</strong> {telemetryData.bme_h}%</div>
+            <div><strong>Pressure:</strong> {telemetryData.bme_p} hPa</div>
+            {telemetryData.ds_t && <div><strong>Soil Temperatures:</strong> {telemetryData.ds_t.join(', ')}°C</div>}
+            <div><strong>Soil Moisture 0:</strong> {telemetryData.soil0}%</div>
+            <div><strong>Soil Moisture 1:</strong> {telemetryData.soil1}%</div>
+            <div><strong>Soil Moisture 2:</strong> {telemetryData.soil2}%</div>
+            <div><strong>Water Level 1:</strong> {telemetryData.water1}%</div>
+            <div><strong>Water Level 2:</strong> {telemetryData.water2}%</div>
+            <div><strong>Valve 1:</strong> {telemetryData.valve1 ? 'ON' : 'OFF'}</div>
+            <div><strong>Valve 2:</strong> {telemetryData.valve2 ? 'ON' : 'OFF'}</div>
+            <div><strong>Valve 3:</strong> {telemetryData.valve3 ? 'ON' : 'OFF'}</div>
+            <div><strong>Pump 1:</strong> {telemetryData.pump1 ? 'ON' : 'OFF'}</div>
+            <div><strong>Pump 2:</strong> {telemetryData.pump2 ? 'ON' : 'OFF'}</div>
           </div>
         </div>
       )}

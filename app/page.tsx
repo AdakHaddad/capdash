@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import mqtt, { MqttClient } from 'mqtt';
 import ShallotAvatar from './components/ShallotAvatar';
+import ScheduleCalendar from './components/ScheduleCalendar';
 
 interface Sensors {
   pressure: number;
@@ -11,11 +12,20 @@ interface Sensors {
   waterLevel: number;
   airTemp: number;
   airHumidity: number;
+  ds_t?: number[];
+  soil?: number[];
+  water?: number[];
 }
 
 interface Pumps {
   irrigation: boolean;
   suction: boolean;
+}
+
+interface Valves {
+  valve1: boolean;
+  valve2: boolean;
+  valve3: boolean;
 }
 
 interface Inference {
@@ -61,6 +71,8 @@ export default function IrrigationControl() {
     irrigation: false,
     suction: false
   });
+
+  const [valves, setValves] = useState<Valves>({ valve1: false, valve2: false, valve3: false });
 
   const [inference, setInference] = useState<Inference | null>(null);
   const [dataSource, setDataSource] = useState<string>('unknown');
@@ -145,7 +157,7 @@ export default function IrrigationControl() {
       : 'ws://test.mosquitto.org:8080';   // Regular WebSocket for HTTP
     
     const MQTT_WS_URL = process.env.NEXT_PUBLIC_MQTT_BROKER_URL || defaultBroker;
-    const TOPIC_TELEMETRY = process.env.NEXT_PUBLIC_MQTT_TOPIC || 'd02/data';
+    const TOPIC_TELEMETRY = process.env.NEXT_PUBLIC_MQTT_TOPIC || 'd02/telemetry';
 
     console.log(`🌐 Page Protocol: ${window.location.protocol}`);
     console.log(`🔌 MQTT Broker: ${MQTT_WS_URL}`);
@@ -157,14 +169,27 @@ export default function IrrigationControl() {
     }
 
     // Updated client configuration for test.mosquitto.org
-    const client = mqtt.connect(MQTT_WS_URL, {
+    const clientOptions: any = {
       clientId: 'NextJS_WebClient_' + Math.random().toString(16).substring(2, 8),
       reconnectPeriod: 2000,
       clean: true,
       connectTimeout: 10000,
       keepalive: 60,
       protocolVersion: 4, // MQTT 3.1.1
-    });
+    };
+
+    // Add authentication if credentials provided
+    const username = process.env.NEXT_PUBLIC_MQTT_USERNAME;
+    const password = process.env.NEXT_PUBLIC_MQTT_PASSWORD;
+    if (username) {
+      clientOptions.username = username;
+      console.log('🔐 Using MQTT authentication');
+    }
+    if (password) {
+      clientOptions.password = password;
+    }
+
+    const client = mqtt.connect(MQTT_WS_URL, clientOptions);
 
     mqttClientRef.current = client;
 
@@ -279,8 +304,37 @@ export default function IrrigationControl() {
           // Check if it's JSON format
           if (payloadStr.startsWith('{')) {
             const data = JSON.parse(payloadStr);
-            if (typeof data === 'object') {
-              if (typeof data.pressure === 'number' && typeof data.soilTemp === 'number') {
+            if (typeof data === 'object' && data.bme_t) { // New format
+              const soilTemps = data.ds_t || [];
+              const soilMoisture = [data.soil0, data.soil1, data.soil2];
+              const waterLevels = [data.water1, data.water2];
+
+              setSensors({
+                pressure: data.bme_p,
+                airTemp: data.bme_t,
+                airHumidity: data.bme_h,
+                soilTemp: soilTemps.length > 0 ? soilTemps.reduce((a, b) => a + b, 0) / soilTemps.length : 0,
+                soilHumidity: soilMoisture.reduce((a, b) => a + b, 0) / soilMoisture.length,
+                waterLevel: waterLevels.reduce((a, b) => a + b, 0) / waterLevels.length,
+                ds_t: soilTemps,
+                soil: soilMoisture,
+                water: waterLevels,
+              });
+
+              setPumps({
+                irrigation: data.pump1,
+                suction: data.pump2,
+              });
+
+              setValves({
+                valve1: data.valve1,
+                valve2: data.valve2,
+                valve3: data.valve3,
+              });
+
+              setDataSource('mqtt-json-new');
+              addLog(`✅ New JSON data updated`);
+            } else if (typeof data === 'object' && typeof data.pressure === 'number' && typeof data.soilTemp === 'number') { // Keep old JSON format support
                 setSensors(prev => ({
                   pressure: data.pressure ?? prev.pressure,
                   soilTemp: data.soilTemp ?? prev.soilTemp,
@@ -291,7 +345,6 @@ export default function IrrigationControl() {
                 }));
                 setDataSource('mqtt-json');
                 addLog(`✅ JSON data updated`);
-              }
             }
           }
           // Check if it's simple STM32 format: "STM32_DATA_P701_ST21_SH52_WL12_AT26_AH62_C1"
@@ -673,9 +726,9 @@ export default function IrrigationControl() {
           {/* Soil Sensor */}
           <div className="p-2">
             <div className="text-xs text-gray-600 mb-2">Tanah</div>
-            <div className="text-2xl md:text-3xl font-semibold text-gray-900">{sensors.soilTemp}°C</div>
+            <div className="text-2xl md:text-3xl font-semibold text-gray-900">{sensors.soilTemp.toFixed(1)}°C</div>
             <div className="flex items-center gap-1 mt-1">
-              <span className="text-sm text-gray-600">💧 {sensors.soilHumidity}%</span>
+              <span className="text-sm text-gray-600">💧 {sensors.soilHumidity.toFixed(1)}%</span>
             </div>
           </div>
 
@@ -684,15 +737,15 @@ export default function IrrigationControl() {
             <div className="text-xs text-gray-600 mb-2 flex items-center gap-1">
               <span>💧</span> Ketinggian Air
             </div>
-            <div className="text-2xl md:text-3xl font-semibold text-gray-900">{sensors.waterLevel}cm</div>
+            <div className="text-2xl md:text-3xl font-semibold text-gray-900">{sensors.waterLevel.toFixed(1)}cm</div>
           </div>
 
           {/* Air Sensor */}
           <div className="p-2">
             <div className="text-xs text-gray-600 mb-2">Udara</div>
-            <div className="text-2xl md:text-3xl font-semibold text-gray-900">{sensors.airTemp}°C</div>
+            <div className="text-2xl md:text-3xl font-semibold text-gray-900">{sensors.airTemp.toFixed(1)}°C</div>
             <div className="flex items-center gap-1 mt-1">
-              <span className="text-sm text-gray-600">💧 {sensors.airHumidity}%</span>
+              <span className="text-sm text-gray-600">💧 {sensors.airHumidity.toFixed(1)}%</span>
             </div>
           </div>
         </div>
@@ -760,6 +813,37 @@ export default function IrrigationControl() {
           </div>
         </div>
 
+        {/* Detailed Sensor Grid */}
+        <div className="md:col-span-3 mt-4">
+          <h3 className="text-lg font-semibold mb-2">Detailed Status</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="p-3 bg-gray-50 rounded-lg">
+              <div className="text-sm text-gray-600">Valves</div>
+              <div>Valve 1: {valves.valve1 ? 'ON' : 'OFF'}</div>
+              <div>Valve 2: {valves.valve2 ? 'ON' : 'OFF'}</div>
+              <div>Valve 3: {valves.valve3 ? 'ON' : 'OFF'}</div>
+            </div>
+            <div className="p-3 bg-gray-50 rounded-lg">
+              <div className="text-sm text-gray-600">Soil Temps</div>
+              {sensors.ds_t?.map((temp, index) => (
+                <div key={index}>Sensor {index}: {temp.toFixed(1)}°C</div>
+              ))}
+            </div>
+            <div className="p-3 bg-gray-50 rounded-lg">
+              <div className="text-sm text-gray-600">Soil Moisture</div>
+              {sensors.soil?.map((hum, index) => (
+                <div key={index}>Sensor {index}: {hum.toFixed(1)}%</div>
+              ))}
+            </div>
+            <div className="p-3 bg-gray-50 rounded-lg">
+              <div className="text-sm text-gray-600">Water Levels</div>
+              {sensors.water?.map((level, index) => (
+                <div key={index}>Sensor {index}: {level.toFixed(1)}%</div>
+              ))}
+            </div>
+          </div>
+        </div>
+
         {/* Bottom Navigation (mobile only) */}
         <div className="flex justify-around mt-4 pt-4 border-t border-gray-200 md:col-span-3 md:hidden">
           <div className="flex flex-col items-center gap-1.5 cursor-pointer transition-opacity duration-200 hover:opacity-70">
@@ -775,12 +859,7 @@ export default function IrrigationControl() {
         {/* Desktop inline panels for Jadwal and History */}
         <div className="hidden md:grid md:grid-cols-2 gap-4 md:col-span-3 mt-2">
           <div className="p-4 border border-gray-200 rounded-lg">
-            <div className="text-sm font-medium text-gray-800 mb-2">Jadwal</div>
-            <ul className="text-sm text-gray-700 space-y-2">
-              <li>• 08:00 - Irigasi 15 menit</li>
-              <li>• 12:00 - Irigasi 10 menit</li>
-              <li>• 18:00 - Irigasi 20 menit</li>
-            </ul>
+            <ScheduleCalendar />
           </div>
           <div className="p-4 border border-gray-200 rounded-lg">
             <div className="text-sm font-medium text-gray-800 mb-2">History</div>
