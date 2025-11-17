@@ -30,17 +30,25 @@ export default function MqttClientWidget() {
   const topicCommands = 'd02/commands';
 
   useEffect(() => {
-    const url = 'wss://b2a051ac43c4410e86861ed01b937dec.s1.eu.hivemq.cloud:8884/mqtt';
+    const url = process.env.NEXT_PUBLIC_MQTT_BROKER_URL || 'wss://test.mosquitto.org:8081';
     const clientId = 'web-' + Math.random().toString(16).slice(2);
 
-    const client: MqttClient = mqtt.connect(url, {
+    const clientOptions: mqtt.IClientOptions = {
       protocol: 'wss',
-      username: 'user1',
-      password: 'P@ssw0rd',
       clientId,
       clean: true,
       reconnectPeriod: 2000,
-    });
+    };
+
+    // Add authentication if configured
+    const username = process.env.NEXT_PUBLIC_MQTT_USERNAME;
+    const password = process.env.NEXT_PUBLIC_MQTT_PASSWORD;
+    if (username && password) {
+      clientOptions.username = username;
+      clientOptions.password = password;
+    }
+
+    const client: MqttClient = mqtt.connect(url, clientOptions);
 
     client.on('connect', () => {
       console.log('MQTT Connected');
@@ -92,16 +100,25 @@ export default function MqttClientWidget() {
   }, [topicTelemetry]);
 
   const sendCommand = (cmd: unknown) => {
-    const url = 'wss://b2a051ac43c4410e86861ed01b937dec.s1.eu.hivemq.cloud:8884/mqtt';
+    const url = process.env.NEXT_PUBLIC_MQTT_BROKER_URL || 'wss://test.mosquitto.org:8081';
     const clientId = 'web-pub-' + Math.random().toString(16).slice(2);
-    const client = mqtt.connect(url, {
+    
+    const clientOptions: mqtt.IClientOptions = {
       protocol: 'wss',
-      username: 'user1',
-      password: 'P@ssw0rd',
       clientId,
       clean: true,
       reconnectPeriod: 0,
-    });
+    };
+
+    // Add authentication if configured
+    const username = process.env.NEXT_PUBLIC_MQTT_USERNAME;
+    const password = process.env.NEXT_PUBLIC_MQTT_PASSWORD;
+    if (username && password) {
+      clientOptions.username = username;
+      clientOptions.password = password;
+    }
+
+    const client = mqtt.connect(url, clientOptions);
     client.on('connect', () => {
       client.publish(topicCommands, JSON.stringify(cmd), { qos: 1 }, () => {
         client.end(true);

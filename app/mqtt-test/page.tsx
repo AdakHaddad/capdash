@@ -15,7 +15,7 @@ export default function MQTTTest() {
   };
 
   useEffect(() => {
-    const MQTT_WSS_URL = 'wss://b2a051ac43c4410e86861ed01b937dec.s1.eu.hivemq.cloud:8884/mqtt';
+    const MQTT_WSS_URL = process.env.NEXT_PUBLIC_MQTT_BROKER_URL || 'wss://test.mosquitto.org:8081';
     const USERNAME = 'user1';
     const PASSWORD = 'P@ssw0rd';
 

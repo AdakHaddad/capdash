@@ -270,12 +270,12 @@ export default function IrrigationControl() {
       addLog(`Connection info: ${JSON.stringify(connack)}`);
       
       try {
-        // Subscribe to all relevant topics
+        // Subscribe to unique topics for this project
         const topics = [
           TOPIC_TELEMETRY,
           'd02/status',
-          'd02/cmd',
-          'test'
+          'd02/cmd'
+          // Removed 'test' - too much traffic on public brokers
         ];
         
         topics.forEach(topic => {
@@ -336,7 +336,7 @@ export default function IrrigationControl() {
         timestamp: new Date().toISOString()
       });
       
-      if (topic === TOPIC_TELEMETRY || topic === 'd02/status' || topic === 'd02/telemetry' || topic === 'test') {  // Support all topics
+      if (topic === TOPIC_TELEMETRY || topic === 'd02/status' || topic === 'd02/telemetry') {  // Only process our topics
         try {
           addLog(`📨 Received on ${topic}: ${payloadStr.substring(0, 80)}...`);
           
@@ -363,17 +363,6 @@ export default function IrrigationControl() {
               }
             }
             return; // Don't process further for pump status
-          }
-          
-          // If it's just a simple test message (like "STM32_OK" or "Hello")
-          if (topic === 'test') {
-            addLog(`🔔 Test message received: ${payloadStr}`);
-            // Only set to test mode if we don't already have real data
-            if (dataSource === 'unknown' || dataSource === 'awaiting-mqtt') {
-              setDataSource('mqtt-test');
-            }
-            // Don't update sensors for test messages, just show they arrived
-            return;
           }
           
           // Check if it's JSON format
