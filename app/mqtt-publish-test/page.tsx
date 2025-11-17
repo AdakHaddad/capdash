@@ -138,7 +138,7 @@ export default function MQTTTestPage() {
             <li>If test fails, check browser console for detailed errors</li>
             <li>Verify broker URL uses <code className="bg-gray-800 px-1 rounded">wss://</code> for HTTPS sites</li>
             <li>Check Vercel/Netlify environment variables are set correctly</li>
-            <li>Monitor with: <code className="bg-gray-800 px-1 rounded">mosquitto_sub -h test.mosquitto.org -t &quot;d02/#&quot; -v</code></li>
+            <li>Monitor with: <code className="bg-gray-800 px-1 rounded">mosquitto_sub -h {process.env.MQTT_BROKER} -t &quot;d02/#&quot; -v</code></li>
           </ul>
         </div>
       </div>
