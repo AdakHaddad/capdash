@@ -16,7 +16,12 @@ export default function MQTTTestPage() {
     setTestResult('Testing...');
     addLog('🧪 Starting MQTT publish test');
 
-    const brokerUrl = process.env.NEXT_PUBLIC_MQTT_BROKER_URL || 'wss://test.mosquitto.org:8884/mqtt';
+    const brokerUrl = process.env.NEXT_PUBLIC_MQTT_BROKER_URL;
+    if (!brokerUrl) {
+      addLog('❌ NEXT_PUBLIC_MQTT_BROKER_URL not configured');
+      setTestResult('❌ FAILED: Broker URL not configured in .env');
+      return;
+    }
     addLog(`🔌 Connecting to: ${brokerUrl}`);
 
     try {
@@ -31,7 +36,7 @@ export default function MQTTTestPage() {
         setStatus('Connected');
 
         // Try to publish
-        const testTopic = 'd02/cmd';
+        const testTopic = process.env.NEXT_PUBLIC_MQTT_TOPIC || 'd02/telemetry';
         const testPayload = 'TEST_' + Date.now();
         
         addLog(`📤 Publishing to ${testTopic}: ${testPayload}`);
@@ -81,12 +86,12 @@ export default function MQTTTestPage() {
             <div>
               <span className="text-gray-400">Broker:</span>{' '}
               <span className="text-green-400">
-                {process.env.NEXT_PUBLIC_MQTT_BROKER_URL || 'wss://test.mosquitto.org:8884/mqtt'}
+                {process.env.NEXT_PUBLIC_MQTT_BROKER_URL || '❌ Not configured'}
               </span>
             </div>
             <div>
               <span className="text-gray-400">Test Topic:</span>{' '}
-              <span className="text-blue-400">d02/cmd</span>
+              <span className="text-blue-400">{process.env.NEXT_PUBLIC_MQTT_TOPIC || 'd02/telemetry'}</span>
             </div>
             <div>
               <span className="text-gray-400">Status:</span>{' '}
