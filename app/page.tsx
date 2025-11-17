@@ -1208,7 +1208,7 @@ export default function IrrigationControl() {
         )}
 
         {/* Debug Panel */}
-        <div className="fixed bottom-2.5 right-2.5 z-50 flex flex-col gap-2">
+        {/* <div className="fixed bottom-2.5 right-2.5 z-50 flex flex-col gap-2">
           <button 
             onClick={testMQTTPublish}
             className="bg-blue-600 text-white border-none px-3 py-2 rounded-md text-xs cursor-pointer hover:bg-blue-700"
@@ -1221,7 +1221,7 @@ export default function IrrigationControl() {
           >
             Test API
           </button>
-        </div>
+        </div> */}
       </div>
     </div>
   );
