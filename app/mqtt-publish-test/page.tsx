@@ -16,7 +16,7 @@ export default function MQTTTestPage() {
     setTestResult('Testing...');
     addLog('🧪 Starting MQTT publish test');
 
-    const brokerUrl = process.env.NEXT_PUBLIC_MQTT_BROKER_URL || 'wss://broker.hivemq.com:8884/mqtt';
+    const brokerUrl = process.env.NEXT_PUBLIC_MQTT_BROKER_URL || 'wss://test.mosquitto.org:8884/mqtt';
     addLog(`🔌 Connecting to: ${brokerUrl}`);
 
     try {
@@ -81,7 +81,7 @@ export default function MQTTTestPage() {
             <div>
               <span className="text-gray-400">Broker:</span>{' '}
               <span className="text-green-400">
-                {process.env.NEXT_PUBLIC_MQTT_BROKER_URL || 'wss://broker.hivemq.com:8884/mqtt'}
+                {process.env.NEXT_PUBLIC_MQTT_BROKER_URL || 'wss://test.mosquitto.org:8884/mqtt'}
               </span>
             </div>
             <div>
@@ -133,7 +133,7 @@ export default function MQTTTestPage() {
             <li>If test fails, check browser console for detailed errors</li>
             <li>Verify broker URL uses <code className="bg-gray-800 px-1 rounded">wss://</code> for HTTPS sites</li>
             <li>Check Vercel/Netlify environment variables are set correctly</li>
-            <li>Monitor with: <code className="bg-gray-800 px-1 rounded">mosquitto_sub -h broker.hivemq.com -t &quot;d02/#&quot; -v</code></li>
+            <li>Monitor with: <code className="bg-gray-800 px-1 rounded">mosquitto_sub -h test.mosquitto.org -t &quot;d02/#&quot; -v</code></li>
           </ul>
         </div>
       </div>

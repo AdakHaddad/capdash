@@ -203,21 +203,21 @@ export default function IrrigationControl() {
       }
     } catch (error) {
       addLog(`Error fetching sensors: ${error instanceof Error ? error.message : 'Unknown error'}`);
-      // Don't simulate random data - just rely on MQTT from broker.hivemq.com
-      addLog('Waiting for MQTT data from broker.hivemq.com...');
+      // Don't simulate random data - just rely on MQTT from test.mosquitto.org
+      addLog('Waiting for MQTT data from test.mosquitto.org...');
       setDataSource('awaiting-mqtt');
     } finally {
       setLoading(false);
     }
   }, [addLog, API_BASE]);
 
-  // Initialize MQTT (WS) connection to broker.hivemq.com
+  // Initialize MQTT (WS) connection to test.mosquitto.org
   useEffect(() => {
     // Auto-detect secure/insecure WebSocket based on page protocol
     const isSecure = typeof window !== 'undefined' && window.location.protocol === 'https:';
     const defaultBroker = isSecure 
-      ? 'wss://broker.hivemq.com:8081'  // Secure WebSocket for HTTPS
-      : 'ws://broker.hivemq.com:8080';   // Regular WebSocket for HTTP
+      ? 'wss://test.mosquitto.org:8081'  // Secure WebSocket for HTTPS
+      : 'ws://test.mosquitto.org:8080';   // Regular WebSocket for HTTP
     
     const MQTT_WS_URL = process.env.NEXT_PUBLIC_MQTT_BROKER_URL || defaultBroker;
     const TOPIC_TELEMETRY = process.env.NEXT_PUBLIC_MQTT_TOPIC || 'd02/telemetry';
@@ -231,7 +231,7 @@ export default function IrrigationControl() {
       addLog('⚠️ WARNING: Insecure WebSocket blocked by browser security');
     }
 
-    // Updated client configuration for broker.hivemq.com
+    // Updated client configuration for test.mosquitto.org
     const clientOptions: mqtt.IClientOptions = {
       clientId: 'NextJS_WebClient_' + Math.random().toString(16).substring(2, 8),
       reconnectPeriod: 2000,
@@ -261,7 +261,7 @@ export default function IrrigationControl() {
       setMqttStatus('connected');
       lastHeartbeatRef.current = Date.now();
       console.log('✅ MQTT Connected:', connack);
-      addLog('✅ MQTT connected to broker.hivemq.com');
+      addLog('✅ MQTT connected to test.mosquitto.org');
       addLog(`Connection info: ${JSON.stringify(connack)}`);
       
       try {
@@ -688,7 +688,7 @@ export default function IrrigationControl() {
           console.error('❌ MQTT publish error:', err);
           addLog(`❌ MQTT publish failed: ${err.message}`);
         } else {
-          console.log('✅ MQTT publish successful to broker.hivemq.com');
+          console.log('✅ MQTT publish successful to test.mosquitto.org');
           addLog(`✅ Published → d02/cmd: ${payload}`);
         }
       });
@@ -901,7 +901,7 @@ export default function IrrigationControl() {
                  dataSource === 'fallback' ? 'Offline Mode' : 'Simulation Mode'}
               </span>
               <span className="text-xs text-gray-500">
-                {mqttConnected ? 'broker.hivemq.com' : 
+                {mqttConnected ? 'test.mosquitto.org' : 
                  dataSource === 'stm32-comprehensive' ? '🌡️ STM32 Full Sensors' :
                  dataSource === 'stm32-json' ? '📊 STM32 JSON' :
                  dataSource === 'stm32-compact' ? '🚀 STM32 Live Data' : 
