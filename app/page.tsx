@@ -953,7 +953,7 @@ export default function IrrigationControl() {
             <div className="text-xs text-gray-600 mb-2 flex items-center gap-1">
               <span>💧</span> Ketinggian Air
             </div>
-            <div className="text-2xl md:text-3xl font-semibold text-gray-900">{sensors.waterLevel.toFixed(1)}cm</div>
+            <div className="text-2xl md:text-3xl font-semibold text-gray-900">{sensors.waterLevel.toFixed(1)}%</div>
           </div>
 
           {/* Air Sensor */}
