@@ -1028,6 +1028,33 @@ export default function IrrigationControl() {
             <span className="text-lg">🎮</span>
             Kontrol Manual
           </button>
+           {/* ML Automation Button */}
+           <button
+             className="w-full mt-2 bg-gradient-to-r from-green-500 to-green-700 text-white px-4 py-3 rounded-lg text-sm font-bold cursor-pointer transition-all duration-300 shadow-md hover:from-green-400 hover:to-green-600 hover:-translate-y-0.5 hover:shadow-lg active:translate-y-0 flex items-center justify-center gap-2"
+             onClick={activateMLAutomation}
+           >
+             <span className="text-lg">🤖</span>
+             Auto Fuzzy
+           </button>
+          // Activate fuzzy ML automation: send ML-recommended command via MQTT
+          const activateMLAutomation = () => {
+            const client = mqttClientRef.current;
+            let command = 'AUTO';
+            if (inference && inference.should_irrigate !== undefined) {
+              command = inference.should_irrigate ? 'POMPA' : 'STOP';
+            }
+            if (!client || !client.connected) {
+              addLog('❌ MQTT client not connected');
+              return;
+            }
+            client.publish('d02/cmd', command, { qos: 1 }, (err) => {
+              if (err) {
+                addLog(`❌ ML Automation publish failed: ${err.message}`);
+              } else {
+                addLog(`✅ ML Automation command sent: ${command}`);
+              }
+            });
+          };
         </div>
 
         {/* Weather Alert */}
@@ -1039,36 +1066,7 @@ export default function IrrigationControl() {
           </div>
         </div>
 
-        {/* Detailed Sensor Grid */}
-        <div className="md:col-span-3 mt-4">
-          <h3 className="text-lg font-semibold mb-2">Detailed Status</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <div className="p-3 bg-gray-50 rounded-lg">
-              <div className="text-sm text-gray-600">Valves</div>
-              <div>Valve 1: {valves.valve1 ? 'ON' : 'OFF'}</div>
-              <div>Valve 2: {valves.valve2 ? 'ON' : 'OFF'}</div>
-              <div>Valve 3: {valves.valve3 ? 'ON' : 'OFF'}</div>
-            </div>
-            <div className="p-3 bg-gray-50 rounded-lg">
-              <div className="text-sm text-gray-600">Soil Temps</div>
-              {sensors.ds_t?.map((temp, index) => (
-                <div key={index}>Sensor {index}: {temp.toFixed(1)}°C</div>
-              ))}
-            </div>
-            <div className="p-3 bg-gray-50 rounded-lg">
-              <div className="text-sm text-gray-600">Soil Moisture</div>
-              {sensors.soil?.map((hum, index) => (
-                <div key={index}>Sensor {index}: {hum.toFixed(1)}%</div>
-              ))}
-            </div>
-            <div className="p-3 bg-gray-50 rounded-lg">
-              <div className="text-sm text-gray-600">Water Levels</div>
-              {sensors.water?.map((level, index) => (
-                <div key={index}>Sensor {index}: {level.toFixed(1)}%</div>
-              ))}
-            </div>
-          </div>
-        </div>
+        {/* Detailed Sensor Grid removed as requested */}
 
         {/* Bottom Navigation (mobile only) */}
         <div className="flex justify-around mt-4 pt-4 border-t border-gray-200 md:col-span-3 md:hidden">
