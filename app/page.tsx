@@ -56,6 +56,25 @@ interface ApiResponse {
 }
 
 export default function IrrigationControl() {
+    // Activate fuzzy ML automation: send ML-recommended command via MQTT
+    const activateMLAutomation = () => {
+      const client = mqttClientRef.current;
+      let command = 'AUTO';
+      if (inference && inference.should_irrigate !== undefined) {
+        command = inference.should_irrigate ? 'POMPA' : 'STOP';
+      }
+      if (!client || !client.connected) {
+        addLog('❌ MQTT client not connected');
+        return;
+      }
+      client.publish('d02/cmd', command, { qos: 1 }, (err) => {
+        if (err) {
+          addLog(`❌ ML Automation publish failed: ${err.message}`);
+        } else {
+          addLog(`✅ ML Automation command sent: ${command}`);
+        }
+      });
+    };
   // "Happy" fallback defaults used when no realtime data is available
   const [sensors, setSensors] = useState<Sensors>({
     // Typical comfortable environmental values for a healthy plant
@@ -1036,25 +1055,6 @@ export default function IrrigationControl() {
              <span className="text-lg">🤖</span>
              Auto Fuzzy
            </button>
-          // Activate fuzzy ML automation: send ML-recommended command via MQTT
-          const activateMLAutomation = () => {
-            const client = mqttClientRef.current;
-            let command = 'AUTO';
-            if (inference && inference.should_irrigate !== undefined) {
-              command = inference.should_irrigate ? 'POMPA' : 'STOP';
-            }
-            if (!client || !client.connected) {
-              addLog('❌ MQTT client not connected');
-              return;
-            }
-            client.publish('d02/cmd', command, { qos: 1 }, (err) => {
-              if (err) {
-                addLog(`❌ ML Automation publish failed: ${err.message}`);
-              } else {
-                addLog(`✅ ML Automation command sent: ${command}`);
-              }
-            });
-          };
         </div>
 
         {/* Weather Alert */}
