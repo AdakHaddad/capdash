@@ -57,7 +57,30 @@ interface ApiResponse {
 
 export default function IrrigationControl() {
       // Weather state for Jogja (Open-Meteo)
-      const [weather, setWeather] = useState<{ temp: number; desc: string } | null>(null);
+      const [weather, setWeather] = useState<{ temp: number; desc: string; symbol: string } | null>(null);
+      const [forecast, setForecast] = useState<Array<{ hour: string; temp: number; symbol: string }>>([]);
+
+      // Map Open-Meteo weathercode to description and symbol
+      const weatherDescMap: { [key: number]: { desc: string; symbol: string } } = {
+        0: { desc: 'Cerah', symbol: '☀️' },
+        1: { desc: 'Sebagian Berawan', symbol: '🌤️' },
+        2: { desc: 'Berawan', symbol: '⛅' },
+        3: { desc: 'Berawan Tebal', symbol: '☁️' },
+        45: { desc: 'Kabut', symbol: '🌫️' },
+        48: { desc: 'Kabut Embun', symbol: '🌫️' },
+        51: { desc: 'Gerimis Ringan', symbol: '🌦️' },
+        53: { desc: 'Gerimis', symbol: '🌦️' },
+        55: { desc: 'Gerimis Lebat', symbol: '🌧️' },
+        61: { desc: 'Hujan Ringan', symbol: '🌦️' },
+        63: { desc: 'Hujan', symbol: '🌧️' },
+        65: { desc: 'Hujan Lebat', symbol: '🌧️' },
+        80: { desc: 'Hujan Lokal', symbol: '🌦️' },
+        81: { desc: 'Hujan Lokal Lebat', symbol: '🌧️' },
+        82: { desc: 'Hujan Sangat Lebat', symbol: '🌧️' },
+        95: { desc: 'Badai Petir', symbol: '⛈️' },
+        96: { desc: 'Badai Petir dengan Hujan', symbol: '⛈️' },
+        99: { desc: 'Badai Petir dengan Hujan Lebat', symbol: '⛈️' }
+      };
 
       // Fetch weather for Jogja, Indonesia using Open-Meteo (no API key required)
       useEffect(() => {
@@ -66,41 +89,39 @@ export default function IrrigationControl() {
             // Jogja coordinates
             const lat = -7.7956;
             const lon = 110.3695;
-            // Open-Meteo API: current weather
-            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`;
+            // Open-Meteo API: current weather + next 6 hours
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&hourly=temperature_2m,weathercode&timezone=Asia%2FJakarta`;
             const res = await fetch(url);
             const data = await res.json();
             if (data && data.current_weather) {
-              // Map Open-Meteo weathercode to description
               const code = data.current_weather.weathercode;
               const temp = data.current_weather.temperature;
-              const weatherDescMap: { [key: number]: string } = {
-                0: 'Cerah',
-                1: 'Sebagian Berawan',
-                2: 'Berawan',
-                3: 'Berawan Tebal',
-                45: 'Kabut',
-                48: 'Kabut Embun',
-                51: 'Gerimis Ringan',
-                53: 'Gerimis',
-                55: 'Gerimis Lebat',
-                61: 'Hujan Ringan',
-                63: 'Hujan',
-                65: 'Hujan Lebat',
-                80: 'Hujan Lokal',
-                81: 'Hujan Lokal Lebat',
-                82: 'Hujan Sangat Lebat',
-                95: 'Badai Petir',
-                96: 'Badai Petir dengan Hujan',
-                99: 'Badai Petir dengan Hujan Lebat'
-              };
+              const descObj = weatherDescMap[code] || { desc: 'Tidak diketahui', symbol: '❓' };
               setWeather({
                 temp,
-                desc: weatherDescMap[code] || 'Tidak diketahui'
+                desc: descObj.desc,
+                symbol: descObj.symbol
               });
+            }
+            // Forward prediction: next 6 hours
+            if (data && data.hourly && data.hourly.time && data.hourly.temperature_2m && data.hourly.weathercode) {
+              const now = new Date();
+              const forecastArr: Array<{ hour: string; temp: number; symbol: string }> = [];
+              for (let i = 0; i < data.hourly.time.length && forecastArr.length < 6; i++) {
+                const forecastTime = new Date(data.hourly.time[i]);
+                if (forecastTime > now) {
+                  const hourStr = forecastTime.getHours().toString().padStart(2, '0') + ':00';
+                  const temp = data.hourly.temperature_2m[i];
+                  const code = data.hourly.weathercode[i];
+                  const symbol = (weatherDescMap[code] || { symbol: '❓' }).symbol;
+                  forecastArr.push({ hour: hourStr, temp, symbol });
+                }
+              }
+              setForecast(forecastArr);
             }
           } catch (err) {
             setWeather(null);
+            setForecast([]);
           }
         };
         fetchWeather();
@@ -1108,17 +1129,27 @@ export default function IrrigationControl() {
            */}
         </div>
 
-        {/* Weather Alert - Live from Open-Meteo */}
+        {/* Weather Alert - Live from Open-Meteo with symbol and forward prediction */}
         <div className="p-3 mb-4 md:col-span-3">
-          <span className="text-lg">☀️</span>
+          <span className="text-lg">{weather ? weather.symbol : '❓'}</span>
           <div className="flex-1 text-sm leading-relaxed text-gray-800 mt-1">
-            <strong>Perkiraan Cuaca Jogja</strong><br />
+            <strong>Perkiraan Cuaca</strong><br />
             {weather
               ? (<>
-                  {weather.desc}<br />
-                  Suhu: {weather.temp.toFixed(1)}°C
+                  {weather.desc} {weather.symbol}<br />
+                  Suhu: {weather.temp.toFixed(1)}°C<br />
+                  <span className="text-xs text-gray-600">Prediksi 6 jam ke depan:</span><br />
+                  <div className="flex gap-2 mt-1">
+                    {forecast.map((f, idx) => (
+                      <div key={idx} className="flex flex-col items-center px-1">
+                        <span>{f.symbol}</span>
+                        <span className="text-[10px]">{f.hour}</span>
+                        <span className="text-[10px]">{f.temp.toFixed(1)}°C</span>
+                      </div>
+                    ))}
+                  </div>
                 </>)
-              : 'Gagal mengambil data cuaca.'}
+              : 'Perhitungan data cuaca.'}
           </div>
         </div>
 
