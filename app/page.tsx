@@ -56,6 +56,32 @@ interface ApiResponse {
 }
 
 export default function IrrigationControl() {
+      // Weather state for Jogja
+      const [weather, setWeather] = useState<{ temp: number; desc: string; icon: string } | null>(null);
+
+      // Fetch weather for Jogja, Indonesia
+      useEffect(() => {
+        const fetchWeather = async () => {
+          try {
+            // You need to set your OpenWeatherMap API key in .env as NEXT_PUBLIC_OPENWEATHER_API_KEY
+            const apiKey = process.env.NEXT_PUBLIC_OPENWEATHER_API_KEY;
+            if (!apiKey) return;
+            const url = `https://api.openweathermap.org/data/2.5/weather?q=Yogyakarta,id&units=metric&appid=${apiKey}`;
+            const res = await fetch(url);
+            const data = await res.json();
+            if (data && data.weather && data.main) {
+              setWeather({
+                temp: data.main.temp,
+                desc: data.weather[0].description,
+                icon: data.weather[0].icon
+              });
+            }
+          } catch (err) {
+            setWeather(null);
+          }
+        };
+        fetchWeather();
+      }, []);
     // Activate fuzzy ML automation: send ML-recommended command via MQTT
     const activateMLAutomation = () => {
       const client = mqttClientRef.current;
@@ -1048,6 +1074,7 @@ export default function IrrigationControl() {
             Kontrol Manual
           </button>
            {/* ML Automation Button */}
+           {/*
            <button
              className="w-full mt-2 bg-gradient-to-r from-green-500 to-green-700 text-white px-4 py-3 rounded-lg text-sm font-bold cursor-pointer transition-all duration-300 shadow-md hover:from-green-400 hover:to-green-600 hover:-translate-y-0.5 hover:shadow-lg active:translate-y-0 flex items-center justify-center gap-2"
              onClick={activateMLAutomation}
@@ -1055,14 +1082,20 @@ export default function IrrigationControl() {
              <span className="text-lg">🤖</span>
              Auto Fuzzy
            </button>
+           */}
         </div>
 
-        {/* Weather Alert */}
+        {/* Weather Alert - Live from OpenWeatherMap */}
         <div className="p-3 mb-4 md:col-span-3">
-          <span className="text-lg">☀️</span>
+          <span className="text-lg">{weather ? <img src={`https://openweathermap.org/img/wn/${weather.icon}@2x.png`} alt="weather" style={{display:'inline',width:'32px',verticalAlign:'middle'}} /> : '☀️'}</span>
           <div className="flex-1 text-sm leading-relaxed text-gray-800 mt-1">
-            <strong>Perkiraan Cuaca</strong><br />
-            Cerah selama beberapa jam ke depan. Jadwal pengairan telah disesuaikan
+            <strong>Perkiraan Cuaca Jogja</strong><br />
+            {weather
+              ? (<>
+                  {weather.desc.charAt(0).toUpperCase() + weather.desc.slice(1)}<br />
+                  Suhu: {weather.temp.toFixed(1)}°C
+                </>)
+              : 'Gagal mengambil data cuaca atau API key belum diatur.'}
           </div>
         </div>
 
