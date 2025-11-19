@@ -56,24 +56,47 @@ interface ApiResponse {
 }
 
 export default function IrrigationControl() {
-      // Weather state for Jogja
-      const [weather, setWeather] = useState<{ temp: number; desc: string; icon: string } | null>(null);
+      // Weather state for Jogja (Open-Meteo)
+      const [weather, setWeather] = useState<{ temp: number; desc: string } | null>(null);
 
-      // Fetch weather for Jogja, Indonesia
+      // Fetch weather for Jogja, Indonesia using Open-Meteo (no API key required)
       useEffect(() => {
         const fetchWeather = async () => {
           try {
-            // You need to set your OpenWeatherMap API key in .env as NEXT_PUBLIC_OPENWEATHER_API_KEY
-            const apiKey = process.env.NEXT_PUBLIC_OPENWEATHER_API_KEY;
-            if (!apiKey) return;
-            const url = `https://api.openweathermap.org/data/2.5/weather?q=Yogyakarta,id&units=metric&appid=${apiKey}`;
+            // Jogja coordinates
+            const lat = -7.7956;
+            const lon = 110.3695;
+            // Open-Meteo API: current weather
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`;
             const res = await fetch(url);
             const data = await res.json();
-            if (data && data.weather && data.main) {
+            if (data && data.current_weather) {
+              // Map Open-Meteo weathercode to description
+              const code = data.current_weather.weathercode;
+              const temp = data.current_weather.temperature;
+              const weatherDescMap: { [key: number]: string } = {
+                0: 'Cerah',
+                1: 'Sebagian Berawan',
+                2: 'Berawan',
+                3: 'Berawan Tebal',
+                45: 'Kabut',
+                48: 'Kabut Embun',
+                51: 'Gerimis Ringan',
+                53: 'Gerimis',
+                55: 'Gerimis Lebat',
+                61: 'Hujan Ringan',
+                63: 'Hujan',
+                65: 'Hujan Lebat',
+                80: 'Hujan Lokal',
+                81: 'Hujan Lokal Lebat',
+                82: 'Hujan Sangat Lebat',
+                95: 'Badai Petir',
+                96: 'Badai Petir dengan Hujan',
+                99: 'Badai Petir dengan Hujan Lebat'
+              };
               setWeather({
-                temp: data.main.temp,
-                desc: data.weather[0].description,
-                icon: data.weather[0].icon
+                temp,
+                desc: weatherDescMap[code] || 'Tidak diketahui'
               });
             }
           } catch (err) {
@@ -1085,17 +1108,17 @@ export default function IrrigationControl() {
            */}
         </div>
 
-        {/* Weather Alert - Live from OpenWeatherMap */}
+        {/* Weather Alert - Live from Open-Meteo */}
         <div className="p-3 mb-4 md:col-span-3">
-          <span className="text-lg">{weather ? <img src={`https://openweathermap.org/img/wn/${weather.icon}@2x.png`} alt="weather" style={{display:'inline',width:'32px',verticalAlign:'middle'}} /> : '☀️'}</span>
+          <span className="text-lg">☀️</span>
           <div className="flex-1 text-sm leading-relaxed text-gray-800 mt-1">
             <strong>Perkiraan Cuaca Jogja</strong><br />
             {weather
               ? (<>
-                  {weather.desc.charAt(0).toUpperCase() + weather.desc.slice(1)}<br />
+                  {weather.desc}<br />
                   Suhu: {weather.temp.toFixed(1)}°C
                 </>)
-              : 'Gagal mengambil data cuaca atau API key belum diatur.'}
+              : 'Gagal mengambil data cuaca.'}
           </div>
         </div>
 
