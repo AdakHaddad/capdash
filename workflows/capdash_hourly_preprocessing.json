@@ -1,0 +1,84 @@
+{
+  "name": "capdash-hourly-preprocessing",
+  "nodes": [
+    {
+      "parameters": {
+        "options": {
+          "topic": "d02/telemetry",
+          "qos": 1,
+          "broker": "mqtt://localhost:1883"
+        }
+      },
+      "type": "n8n-nodes-base.mqttTrigger",
+      "typeVersion": 1,
+      "position": [0, 0],
+      "id": "mqtt-trigger",
+      "name": "MQTT Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "sensor_readings",
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [260, 0],
+      "id": "get-many-rows",
+      "name": "Get many rows",
+      "credentials": {
+        "supabaseApi": {
+          "id": "YOUR_SUPABASE_CRED_ID",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "language": "python",
+        "pythonCode": "import pandas as pd\nfrom datetime import datetime\n\n# Input: items from Supabase (list of json)\ninput_data = [item.json for item in items]\nif not input_data:\n    return [{'json': {'status': 'empty', 'message': 'No data'}}]\n\ndf = pd.DataFrame(input_data)\ncol_time = 'timestamp' if 'timestamp' in df.columns else 'created_at'\nif col_time not in df.columns:\n    return [{'json': {'status':'error', 'message': f'{col_time} not found'}}]\n\ndf[col_time] = pd.to_datetime(df[col_time])\ndf = df.sort_values(col_time).reset_index(drop=True)\ndf['jam_group'] = df[col_time].dt.floor('h')\ndf_hourly = df.groupby('jam_group', as_index=False).first()\ndf_final = df_hourly.drop(columns=['jam_group'])\n\nrename_map = {'temperature': 'temperature_2m (°C)', 'humidity': 'relative_humidity_2m (%)', 'pressure': 'surface_pressure (hPa)'}\ndf_final = df_final.rename(columns=rename_map)\nresult_list = df_final.to_dict(orient='records')\n\nreturn [{'json': {'processed_data': result_list, 'count': len(result_list)}}]"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [520, 0],
+      "id": "python-filter"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse MQTT payload into key-value fields.\n// If payload is JSON, parse it. If it's a simple STM32 flat string, attempt to pick numbers.\nconst payload = item.json.payload || item.json.message || item.json.data || item.json;\nlet parsed = {};\ntry {\n  parsed = typeof payload === 'string' ? JSON.parse(payload) : payload;\n} catch (e) {\n  // Not JSON - try basic STM32 style parsing, e.g. 'P701_ST21_SH52_WL12_AT26_AH62_C1' or 'st=25,at=27,sh=65,p=825'\n  const s = (typeof payload === 'string') ? payload : JSON.stringify(payload);\n  // Attempt to match pairs like st=25, at=27\n  const kv = s.match(/(st|at|sh|ah|p|wl|P|ST|SH|WL|AT|AH|temp|hum|pressure)[:=]?\\s?(-?\\d+\\.?\\d*)/gi);\n  if(kv) {\n    kv.forEach(pair => {\n      const m = pair.match(/(st|at|sh|ah|p|wl|P|ST|SH|WL|AT|AH|temp|hum|pressure)[:=]?\\s?(-?\\d+\\.?\\d*)/i);\n      if(m) {\n        const key = m[1].toLowerCase();\n        const value = parseFloat(m[2]);\n        switch(key) {\n          case 'st': case 't': case 'temp': parsed['soilTemp'] = value; break;\n          case 'at': case 'a': parsed['airTemp'] = value; break;\n          case 'sh': case 'hum': parsed['soilHumidity'] = value; break;\n          case 'ah': parsed['airHumidity'] = value; break;\n          case 'p': case 'pressure': parsed['pressure'] = value; break;\n          case 'wl': parsed['waterLevel'] = value; break;\n          default: parsed[key] = value;\n        }\n      }\n    });\n  } else {\n    parsed['raw'] = s;\n  }\n}\n\n// Ensure timestamp\nparsed['timestamp'] = parsed['timestamp'] || new Date().toISOString();\n\n// Return parsed object as JSON item\nreturn [{ json: parsed }];"
+      },
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [260, -120],
+      "id": "mqtt-parse"
+    },
+    {
+      "parameters": {
+        "language": "python",
+        "pythonCode": "import pandas as pd\nprev = items[0].json\nif 'processed_data' not in prev:\n    return [{'json': {'status': 'error', 'message': 'processed_data missing'}}]\n\nlist_data = prev['processed_data']\ndf = pd.DataFrame(list_data)\n# Keep only columns needed for feature engineering\ndesired = ['created_at','temperature_2m (°C)','relative_humidity_2m (%)','surface_pressure (hPa)']\nif 'created_at' in df.columns and 'timestamps' not in df.columns:\n    df = df.rename(columns={'created_at':'timestamps'})\n\nexisting = [c for c in desired if c in df.columns]\ndf_final = df[existing]\nreturn [{'json': {'final_dataset': df_final.to_dict(orient='records')}}]"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [780, 0],
+      "id": "python-select"
+    },
+    {
+      "parameters": {
+        "language": "python",
+        "pythonCode": "import pandas as pd\nimport numpy as np\nprev = items[0].json\nif 'final_dataset' not in prev:\n    return [{'json': {'status': 'error', 'message': 'final_dataset missing'}}]\n\ndf2 = pd.DataFrame(prev['final_dataset'])\n# Ensure timestamp exists\nif 'timestamps' in df2.columns:\n    df2['time'] = pd.to_datetime(df2['timestamps'])\nelse:\n    df2['time'] = pd.to_datetime(df2.index)\n\ndf2 = df2.sort_values('time').reset_index(drop=True)\n# feature engineering (lag, rolling etc.)\ndf2['hour'] = df2['time'].dt.hour\ndf2['hour_sin'] = np.sin(2*np.pi*df2['hour']/24.0)\ndf2['hour_cos'] = np.cos(2*np.pi*df2['hour']/24.0)\n# Example: lag 1 for temperature\nif 'temperature_2m (°C)' in df2.columns:\n    df2['temperature_lag_1jam'] = df2['temperature_2m (°C)'].shift(1)\n\nX_input = df2.iloc[[-1]].fillna(0).to_dict(orient='records')[0]\nreturn [{'json': {'status': 'ok', 'features_ready_to_predict': X_input}}]"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1040, 0],
+      "id": "python-features"
+    }
+  ],
+  "connections": {
+    "mqtt-trigger": { "main": [[{ "node": "mqtt-parse", "type": "main", "index": 0 }]] },
+    "mqtt-parse": { "main": [[{ "node": "python-filter", "type": "main", "index": 0 }]] },
+    "python-filter": { "main": [[{ "node": "python-select", "type": "main", "index": 0 }]] },
+    "python-select": { "main": [[{ "node": "python-features", "type": "main", "index": 0 }]] }
+  },
+  "active": false,
+  "versionId": "capdash-hourly-v1"
+}

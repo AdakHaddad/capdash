@@ -17,7 +17,7 @@ HiveMQ offers a reliable public WSS broker that works well with Vercel/Netlify.
 Add to your deployment settings:
 
 ```env
-NEXT_PUBLIC_MQTT_BROKER_URL=wss://broker.hivemq.com:8884/mqtt
+NEXT_PUBLIC_MQTT_BROKER_URL=wss://test.mosquitto.org:8884/mqtt
 NEXT_PUBLIC_MQTT_TOPIC=d02/data
 ```
 
@@ -27,7 +27,7 @@ In your STM32 code, change broker to:
 ```c
 // ESP8266 AT command
 AT+MQTTUSERCFG=0,1,"STM32_Client","","",0,0,""
-AT+MQTTCONN=0,"broker.hivemq.com",1883,0
+AT+MQTTCONN=0,"test.mosquitto.org",1883,0
 ```
 
 **Note:** STM32 uses TCP port 1883, dashboard uses WSS port 8884
@@ -84,7 +84,7 @@ NEXT_PUBLIC_MQTT_TOPIC=d02/data
 ```javascript
 // Open browser DevTools Console on your deployed site
 const mqtt = require('mqtt');
-const client = mqtt.connect('wss://broker.hivemq.com:8884/mqtt');
+const client = mqtt.connect('wss://test.mosquitto.org:8884/mqtt');
 
 client.on('connect', () => {
   console.log('✅ Connected');
@@ -100,7 +100,7 @@ client.on('connect', () => {
 Subscribe from your computer to see if messages arrive:
 
 ```bash
-mosquitto_sub -h broker.hivemq.com -t "d02/#" -v
+mosquitto_sub -h test.mosquitto.org -t "d02/#" -v
 ```
 
 ---
@@ -149,7 +149,7 @@ mosquitto_sub -h broker.hivemq.com -t "d02/#" -v
 ### Issue: "Publish successful but STM32 not receiving"
 
 **Cause:** Dashboard and STM32 using different brokers
-**Solution:** Ensure both use same broker (e.g., both use `broker.hivemq.com`)
+**Solution:** Ensure both use same broker (e.g., both use `test.mosquitto.org`)
 
 ### Issue: "Connection timeout"
 
@@ -172,7 +172,7 @@ mosquitto_sub -h broker.hivemq.com -t "d02/#" -v
 
 1. **Use HiveMQ Public Broker** (easiest)
    ```env
-   NEXT_PUBLIC_MQTT_BROKER_URL=wss://broker.hivemq.com:8884/mqtt
+   NEXT_PUBLIC_MQTT_BROKER_URL=wss://test.mosquitto.org:8884/mqtt
    ```
 
 2. **Add Environment Variables** in Vercel dashboard:
@@ -181,7 +181,7 @@ mosquitto_sub -h broker.hivemq.com -t "d02/#" -v
    - Add `NEXT_PUBLIC_MQTT_TOPIC=d02/data`
 
 3. **Update STM32 Code**:
-   - Change broker to `broker.hivemq.com`
+   - Change broker to `test.mosquitto.org`
    - Keep port 1883 (TCP)
    - Topics remain: `d02/data`, `d02/cmd`
 
@@ -207,7 +207,7 @@ NEXT_PUBLIC_MQTT_TOPIC=d02/data
 
 ### Production (Vercel/Netlify)
 ```env
-NEXT_PUBLIC_MQTT_BROKER_URL=wss://broker.hivemq.com:8884/mqtt
+NEXT_PUBLIC_MQTT_BROKER_URL=wss://test.mosquitto.org:8884/mqtt
 NEXT_PUBLIC_MQTT_TOPIC=d02/data
 ```
 
@@ -226,7 +226,7 @@ import mqtt from 'mqtt';
 export async function POST(request: Request) {
   const { topic, payload } = await request.json();
   
-  const client = mqtt.connect('mqtt://broker.hivemq.com:1883');
+  const client = mqtt.connect('mqtt://test.mosquitto.org:1883');
   
   return new Promise((resolve) => {
     client.on('connect', () => {

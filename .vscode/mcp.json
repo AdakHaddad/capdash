@@ -1,0 +1,19 @@
+{
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "n8n-mcp-token",
+      "description": "Your n8n-MCP AUTH_TOKEN",
+      "password": true
+    }
+  ],
+  "servers": {
+    "n8n-mcp": {
+      "type": "http",
+      "url": "http://localhost:5678/mcp-server/http",
+      "headers": {
+        "Authorization": "Bearer ${input:n8n-mcp-token}"
+      }
+    }
+  }
+}

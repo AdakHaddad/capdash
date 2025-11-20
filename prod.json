@@ -1,0 +1,235 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "sensor_readings",
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        208,
+        0
+      ],
+      "id": "8702de6f-69d5-4d58-8ed5-0ea07a7932dc",
+      "name": "Get many rows",
+      "credentials": {
+        "supabaseApi": {
+          "id": "gqItYfGKKiSApUhx",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "35cca8a1-63ac-41ce-9b60-55e4f2646b51",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "language": "python",
+        "pythonCode": "import pandas as pd\nfrom datetime import datetime\n\n# ====================================================================\n# 1. AMBIL DATA DARI NODE SEBELUMNYA\n# ====================================================================\ntry:\n    # Mengambil data dari variabel global 'items' (standar n8n)\n    # Kita ambil bagian 'json' dari setiap item yang masuk\n    input_data = [item.json for item in items]\n\n    # Cek jika input kosong\n    if not input_data:\n        # Return dictionary valid meskipun kosong\n        return [{'json': {'status': 'error', 'message': 'Tidak ada data dari node sebelumnya'}}]\n\n    # ====================================================================\n    # 2. PROSES PANDAS (FILTER HOURLY)\n    # ====================================================================\n    df = pd.DataFrame(input_data)\n\n    # Pastikan ada kolom timestamp (sesuaikan nama kolom jika beda)\n    # Supabase biasanya mengembalikan 'created_at' atau 'timestamp'\n    col_time = 'timestamp' if 'timestamp' in df.columns else 'created_at'\n    \n    if col_time not in df.columns:\n        return [{'json': {'status': 'error', 'message': f'Kolom waktu {col_time} tidak ditemukan'}}]\n\n    # Konversi ke datetime\n    df[col_time] = pd.to_datetime(df[col_time])\n\n    # Urutkan data (Lama -> Baru)\n    df = df.sort_values(col_time).reset_index(drop=True)\n\n    # --- LOGIKA FILTER HOURLY ---\n    # 1. Buat kolom bantuan pembulatan jam (misal 10:45 -> 10:00)\n    df['jam_group'] = df[col_time].dt.floor('h')\n\n    # 2. Grouping dan ambil data PERTAMA (paling awal) di jam tersebut\n    df_hourly = df.groupby('jam_group', as_index=False).first()\n\n    # 3. Bersihkan kolom bantuan\n    df_final = df_hourly.drop(columns=['jam_group'])\n\n    # ====================================================================\n    # 3. RENAME KOLOM (Agar sesuai Model AI)\n    # ====================================================================\n    # Sesuaikan sisi KIRI dengan nama kolom di Supabase Anda\n    rename_map = {\n        'temperature': 'temperature_2m (°C)',\n        'humidity': 'relative_humidity_2m (%)',\n        'pressure': 'surface_pressure (hPa)',\n        # Tambahkan mapping lain jika perlu\n    }\n    \n    # Hanya rename jika kolomnya ada\n    df_final = df_final.rename(columns=rename_map)\n\n    # ====================================================================\n    # 4. OUTPUT YANG BENAR (PERBAIKAN ERROR)\n    # ====================================================================\n    \n    # Ubah DataFrame menjadi list of dictionaries\n    result_list = df_final.to_dict(orient='records')\n\n    # PENTING: Bungkus list ini ke dalam dictionary\n    # Salah: return [{'json': result_list}]  <-- Ini menyebabkan error!\n    # Benar: return [{'json': {'data': result_list}}] <-- Ini diterima n8n\n    \n    output_payload = {\n        'status': 'success',\n        'total_awal': len(df),\n        'total_setelah_filter': len(df_final),\n        # Data hasil olahan kita taruh di dalam key 'processed_data'\n        'processed_data': result_list\n    }\n\n    return [{'json': output_payload}]\n\nexcept Exception as e:\n    # Error handling yang juga mengembalikan format dictionary valid\n    return [{'json': {'status': 'error', 'message': str(e)}}]"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        0
+      ],
+      "id": "19561beb-7e0d-4477-b45c-7db4302df28a",
+      "name": "Filter Data"
+    },
+    {
+      "parameters": {
+        "language": "python",
+        "pythonCode": "import pandas as pd\n\n# ====================================================================\n# NODE 2: BUAT DATAFRAME & SELEKSI KOLOM\n# ====================================================================\ntry:\n    # 1. AMBIL DATA DARI NODE 1\n    prev_node_data = items[0].json\n    \n    target_key = 'processed_data'\n    if target_key not in prev_node_data:\n        return [{'json': {'status': 'error', 'message': 'Key data tidak ditemukan'}}]\n        \n    list_data = prev_node_data[target_key]\n\n    # 2. BUAT DATAFRAME\n    df = pd.DataFrame(list_data)\n\n    # 3. FILTER KOLOM (Hanya ambil 4 kolom penting)\n    # Nama kolom ini harus SAMA PERSIS dengan output Node 1\n    desired_columns = [\n        'timestamps',\n        'temperature_2m (°C)', \n        'relative_humidity_2m (%)', \n        'surface_pressure (hPa)'\n    ]\n\n    rename_map = {\n        'created_at': 'timestamps'\n    }\n    df = df.rename(columns=rename_map)\n    # Cek kolom apa saja yang benar-benar ada di data\n    existing_cols = [col for col in desired_columns if col in df.columns]\n    \n    # Ambil hanya kolom yang diinginkan (Drop sisanya)\n    df_final = df[existing_cols]\n    \n    # Cek jika ada kolom penting yang hilang\n    missing_cols = list(set(desired_columns) - set(existing_cols))\n    status_msg = \"Sukses\"\n    if missing_cols:\n        status_msg = f\"Peringatan: Kolom hilang {missing_cols}\"\n\n    # 4. OUTPUT\n    summary = {\n        \"status\": status_msg,\n        \"jumlah_baris\": len(df_final),\n        \"kolom_tersimpan\": list(df_final.columns),\n        \n        # Data final yang bersih (hanya 4 kolom)\n        \"final_dataset\": df_final.to_dict(orient='records')\n    }\n\n    return [{'json': summary}]\n\nexcept Exception as e:\n    return [{'json': {'status': 'error', 'message': str(e)}}]"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        0
+      ],
+      "id": "63df4fa2-d8b5-487b-85bf-3b93dbfe07b5",
+      "name": "Code in Python (Beta)"
+    },
+    {
+      "parameters": {
+        "language": "python",
+        "pythonCode": "import pandas as pd\nimport numpy as np\nimport sys\n\n# ====================================================================\n# 1. AMBIL DATA DARI NODE SEBELUMNYA (Node 2)\n# ====================================================================\ntry:\n    # Ambil data dari output Node 2 (final_dataset)\n    prev_data = items[0].json\n    \n    if 'final_dataset' not in prev_data:\n        return [{'json': {'status': 'error', 'message': 'Dataset tidak ditemukan dari Node 2'}}]\n    \n    # Buat DataFrame dari seluruh data history (misal 24 baris)\n    df2 = pd.DataFrame(prev_data['final_dataset'])\n    \n    # Fix nama kolom jika ada typo dari sumber (misal timestamps -> timestamp)\n    rename_map = {\n        'timestamps': 'timestamp'\n    }\n    df2 = df2.rename(columns=rename_map)\n    \n    # Pastikan urutan waktu benar (Lama -> Baru)\n    # Ini WAJIB agar shift(1) benar-benar mengambil data \"1 jam lalu\"\n    if 'timestamp' in df2.columns:\n        df2['time'] = pd.to_datetime(df2['timestamp'])\n    elif 'time' in df2.columns:\n        df2['time'] = pd.to_datetime(df2['time'])\n    \n    # Sort data dari terlama ke terbaru\n    df2 = df2.sort_values('time').reset_index(drop=True)\n\n    # ====================================================================\n    # 2. FEATURE ENGINEERING (Hitung Fitur pada Semua Baris)\n    # ====================================================================\n    \n    # --- A. Waktu & Musim ---\n    df2['hour'] = df2['time'].dt.hour\n    df2['month'] = df2['time'].dt.month\n    \n    bins = [-1, 4, 10, 14, 18, 23]\n    labels = ['Malam', 'Pagi', 'Siang', 'Sore', 'Malam']\n    df2['waktu'] = pd.cut(df2['hour'], bins=bins, labels=labels, right=True, ordered=False)\n    \n    bulan_hujan = [10, 11, 12, 1, 2, 3]\n    df2['musim'] = np.where(df2['month'].isin(bulan_hujan), 'Hujan', 'Kemarau')\n    \n    # --- C. Cyclical Features (Sin/Cos Waktu) ---\n    df2['hour_sin'] = np.sin(2 * np.pi * df2['hour']/24.0)\n    df2['hour_cos'] = np.cos(2 * np.pi * df2['hour']/24.0)\n    df2['month_sin'] = np.sin(2 * np.pi * df2['month']/12.0)\n    df2['month_cos'] = np.cos(2 * np.pi * df2['month']/12.0)\n    \n    # --- D. Lag Features (Fitur Masa Lalu) ---\n    lags_to_use = [1, 2, 3, 6, 12, 24]\n    features_to_lag = ['temperature_2m (°C)', 'relative_humidity_2m (%)', 'surface_pressure (hPa)']\n    \n    for lag in lags_to_use:\n        for col in features_to_lag:\n            if col in df2.columns:\n                col_name = col.replace('(°C)', '').replace('(%)', '').replace('(hPa)', '').replace('_2m', '')\n                df2[f'{col_name}_lag_{lag}jam'] = df2[col].shift(lag)\n\n    # --- E. Rolling Features (Tren Rata-rata) ---\n    window_size = 6\n    if 'temperature_2m (°C)' in df2.columns:\n        df2['suhu_roll_mean_6jam'] = df2['temperature_2m (°C)'].shift(1).rolling(window=window_size).mean()\n        df2['suhu_roll_std_6jam'] = df2['temperature_2m (°C)'].shift(1).rolling(window=window_size).std()\n    if 'relative_humidity_2m (%)' in df2.columns:\n        df2['humidity_roll_mean_6jam'] = df2['relative_humidity_2m (%)'].shift(1).rolling(window=window_size).mean()\n        df2['humidity_roll_std_6jam'] = df2['relative_humidity_2m (%)'].shift(1).rolling(window=window_size).std()\n\n    # ====================================================================\n    # 3. ONE-HOT ENCODING\n    # ====================================================================\n    df2 = pd.get_dummies(df2, columns=['waktu'])\n    df2 = pd.get_dummies(df2, columns=['musim'])\n    \n    # Hapus kolom mentah yang tidak dipakai model\n    cols_to_drop = ['hour', 'month', 'time', 'timestamp']\n    df2_final = df2.drop(columns=cols_to_drop, errors='ignore')\n    \n    # ====================================================================\n    # 4. AMBIL HANYA 1 ROW TERAKHIR (FINAL STEP)\n    # ====================================================================\n    # Logika: Kita ambil baris paling bawah (index -1).\n    # Baris ini merepresentasikan kondisi \"SAAT INI\" yang ingin diprediksi.\n    # Meskipun kolom Lag/Rolling mungkin NaN (jika data < 6 jam),\n    # kita tetap ambil baris ini dan nanti diisi 0 agar model tetap jalan.\n    \n    X_input = df2_final.iloc[[-1]].copy()\n    \n    # ====================================================================\n    # 5. PENYAMAAN KOLOM (WAJIB AGAR SESUAI MODEL)\n    # ====================================================================\n    EXPECTED_COLUMNS = [\n       'temperature_2m (°C)', 'relative_humidity_2m (%)', 'surface_pressure (hPa)',\n       'hour_sin', 'hour_cos', 'month_sin', 'month_cos',\n       \n       # Lags\n       'temperature_lag_1jam', 'relative_humidity_lag_1jam', 'surface_pressure_lag_1jam',\n       'temperature_lag_2jam', 'relative_humidity_lag_2jam', 'surface_pressure_lag_2jam',\n       'temperature_lag_3jam', 'relative_humidity_lag_3jam', 'surface_pressure_lag_3jam',\n       'temperature_lag_6jam', 'relative_humidity_lag_6jam', 'surface_pressure_lag_6jam',\n       'temperature_lag_12jam', 'relative_humidity_lag_12jam', 'surface_pressure_lag_12jam',\n       'temperature_lag_24jam', 'relative_humidity_lag_24jam', 'surface_pressure_lag_24jam',\n       \n       # Rolling\n       'suhu_roll_mean_6jam', 'suhu_roll_std_6jam', \n       'humidity_roll_mean_6jam', 'humidity_roll_std_6jam',\n       \n       # Dummies (Waktu)\n       'waktu_Malam', 'waktu_Pagi', 'waktu_Siang', 'waktu_Sore', \n       \n       # Dummies (Musim)\n       'musim_Hujan', 'musim_Kemarau',\n    ]\n    \n    # Reindex memaksa output hanya punya kolom di atas\n    X_input = X_input.reindex(columns=EXPECTED_COLUMNS, fill_value=0)\n    \n    # Isi NaN dengan 0 (untuk lag yang belum terbentuk)\n    X_input = X_input.fillna(0)\n\n    # ====================================================================\n    # 6. OUTPUT\n    # ====================================================================\n    # Mengembalikan 1 baris data terakhir\n    processed_features = X_input.to_dict(orient='records')[0]\n    \n    return [{'json': {\n        'status': 'Sukses Pre-processing',\n        'info': 'Output adalah 1 baris data TERAKHIR (Latest Row)',\n        'waktu_data': str(df2['time'].iloc[-1]),\n        'features_ready_to_predict': processed_features\n    }}]\n\nexcept Exception as e:\n    return [{'json': {'status': 'error', 'message': str(e), 'step': 'Preprocessing Logic'}}]"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        832,
+        0
+      ],
+      "id": "8831c9ab-a996-4212-903c-49ad33dc91b7",
+      "name": "Code in Python (Beta)1"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "Train Data",
+        "returnAll": true,
+        "filterType": "none"
+      },
+      "type": "n8n-nodes-base.supabase",
+      "typeVersion": 1,
+      "position": [
+        208,
+        -192
+      ],
+      "id": "48c71892-042f-44ed-8edf-fa4af46b8bd6",
+      "name": "Get Train Data",
+      "credentials": {
+        "supabaseApi": {
+          "id": "gqItYfGKKiSApUhx",
+          "name": "Supabase account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "language": "python",
+        "pythonCode": "import pandas as pd\nimport numpy as np\nfrom datetime import datetime\n\n# ====================================================================\n# 1. AMBIL DATA DARI NODE SEBELUMNYA\n# ====================================================================\ntry:\n    # Mengambil data dari variabel global 'items' (standar n8n)\n    # Kita ambil bagian 'json' dari setiap item yang masuk\n    input_data = [item.json for item in items]\n\n    # Cek jika input kosong\n    if not input_data:\n        # Return dictionary valid meskipun kosong\n        return [{'json': {'status': 'error', 'message': 'Tidak ada data dari node sebelumnya'}}]\n\n    # ====================================================================\n    # 2. PROSES PANDAS (FILTER HOURLY)\n    # ====================================================================\n    df = pd.DataFrame(input_data)\n    df['time'] = pd.to_datetime(df['time'])\n    df['hour'] = df['time'].dt.hour\n    df['month'] = df['time'].dt.month\n    bins = [-1, 4, 10, 14, 18, 23]\n    labels = ['Malam', 'Pagi', 'Siang', 'Sore', 'Malam']\n    \n    # 2. Buat kolom 'waktu' menggunakan pd.cut\n    df['waktu'] = pd.cut(df['hour'], bins=bins, labels=labels, right=True, ordered=False)\n    df = df.drop('time', axis=1)\n    df['weather_code (wmo code)'] = df['weather_code (wmo code)'].astype(int)\n    bulan_hujan = [10, 11, 12, 1, 2, 3]\n    \n    # 2. Buat kolom 'musim'\n    # Logikanya: JIKA 'bulan' ADA DI DALAM daftar 'bulan_hujan',\n    # MAKA 'Hujan', SELAIN ITU 'Kemarau'\n    df['musim'] = np.where(df['month'].isin(bulan_hujan), 'Hujan', 'Kemarau')\n    def grup_cuaca_baru(kode):\n        kode = int(kode)\n        if kode in [0, 1, 2, 3]:\n            return 'Kering/Berawan'\n        # elif kode in [51, 53, 55]:\n        #     return 'Gerimis'\n        elif kode in [51, 53, 55, 61, 63, 65]:\n            return 'Hujan'\n        else:\n            return 'Kering/Berawan'\n    \n    df['kategori_cuaca'] = df['weather_code (wmo code)'].apply(grup_cuaca_baru)\n    jam_prediksi = 3\n    df['target_future'] = df['kategori_cuaca'].shift(-jam_prediksi)\n    print(f\"Target masa depan (prediksi {jam_prediksi} jam) telah dibuat.\")\n    df['hour_sin'] = np.sin(2 * np.pi * df['hour']/24.0)\n    df['hour_cos'] = np.cos(2 * np.pi * df['hour']/24.0)\n    df['month_sin'] = np.sin(2 * np.pi * df['month']/12.0)\n    df['month_cos'] = np.cos(2 * np.pi * df['month']/12.0)\n    \n    # 3b. Fitur Lag (Ingatan Jangka Panjang)\n    lags_to_use = [1, 2, 3, 6, 12, 24]\n    # Fitur asli yang akan di-lag\n    features_to_lag = [\n        'temperature_2m (°C)', 'relative_humidity_2m (%)', 'surface_pressure (hPa)'\n        # 'hour_sin', 'hour_cos', 'month_sin', 'month_cos' # Masukkan fitur cyclical ke lag\n    ]\n    \n    for lag in lags_to_use:\n        for col in features_to_lag:\n            # Ganti nama kolom agar lebih jelas\n            col_name = col.replace('(°C)', '').replace('(%)', '').replace('(hPa)', '').replace('_2m', '')\n            df[f'{col_name}_lag_{lag}jam'] = df[col].shift(lag)\n    \n    # 3c. Fitur Rolling (Tren Masa Lalu)\n    # Kita gunakan .shift(1) agar rolling window hanya menggunakan data MASA LALU\n    window_size = 6 # Tren 6 jam\n    df['suhu_roll_mean_6jam'] = df['temperature_2m (°C)'].shift(1).rolling(window=window_size).mean()\n    df['suhu_roll_std_6jam'] = df['temperature_2m (°C)'].shift(1).rolling(window=window_size).std()\n    df['humidity_roll_mean_6jam'] = df['relative_humidity_2m (%)'].shift(1).rolling(window=window_size).mean()\n    df['humidity_roll_std_6jam'] = df['relative_humidity_2m (%)'].shift(1).rolling(window=window_size).std()\n    df = pd.get_dummies(df, columns=['waktu'])\n    df = pd.get_dummies(df, columns=['musim'])\n    current_features = [\n        'hour',\n        'month',\n        'time',\n        'kategori_cuaca',\n        'weather_code (wmo code)'\n    ]\n    df_final = df.drop(columns=current_features, errors='ignore')\n    df_final = df_final.dropna()\n    result_list = df_final.to_dict(orient='records')\n\n    # PENTING: Bungkus list ini ke dalam dictionary\n    # Salah: return [{'json': result_list}]  <-- Ini menyebabkan error!\n    # Benar: return [{'json': {'data': result_list}}] <-- Ini diterima n8n\n    \n    final_output = []\n    for row in result_list:\n        final_output.append({'json': row})\n\n    return final_output\n\nexcept Exception as e:\n    # Error handling yang juga mengembalikan format dictionary valid\n    return [{'json': {'status': 'error', 'message': str(e)}}]"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        416,
+        -192
+      ],
+      "id": "49f833b3-ba01-464e-8ff4-473694346515",
+      "name": "Clean Data"
+    },
+    {
+      "parameters": {
+        "language": "python",
+        "pythonCode": "import numpy as np\nimport pandas as pd\nfrom collections import Counter\n\nclass Node:\n    def __init__(self, feature=None, threshold=None, left=None, right=None,*,value=None):\n        self.feature = feature\n        self.threshold = threshold\n        self.left = left\n        self.right = right\n        self.value = value\n\n    def is_leaf_node(self):\n        return self.value is not None\n\n\nclass DecisionTree:\n    def __init__(self, min_samples_split=2, max_depth=100, n_features=None, min_samples_leaf=1): # <-- TAMBAHKAN\n        self.min_samples_split=min_samples_split\n        self.max_depth=max_depth\n        self.n_features=n_features\n        self.min_samples_leaf = min_samples_leaf # <-- TAMBAHKAN\n        self.root=None\n        self.rng = np.random.RandomState(3) # Pastikan rng ada di init\n\n    def fit(self, X, y):\n        self.n_features = X.shape[1] if not self.n_features else min(X.shape[1],self.n_features)\n        self.root = self._grow_tree(X, y)\n\n    def _grow_tree(self, X, y, depth=0):\n        n_samples, n_feats = X.shape\n\n        # Handle empty input data for this node\n        if n_samples == 0 or len(y) == 0:\n            # Return a leaf node with a default value.\n            # In a classification context, a placeholder like 0 might be appropriate,\n            # or you could consider the most common label from the parent node if available.\n            # For simplicity here, returning 0 as a default.\n            return Node(value=0)\n\n        n_labels = len(np.unique(y))\n\n        # check the stopping criteria\n        if (depth>=self.max_depth or n_labels==1 or n_samples<self.min_samples_split):\n            leaf_value = self._most_common_label(y)\n            return Node(value=leaf_value)\n\n        feat_idxs = np.random.choice(n_feats, self.n_features, replace=False)\n\n        # find the best split\n        best_feature, best_thresh = self._best_split(X, y, feat_idxs)\n\n        # If no split was found (e.g., no gain), make this node a leaf\n        if best_feature is None:\n             leaf_value = self._most_common_label(y)\n             return Node(value=leaf_value)\n\n        # create child nodes\n        left_idxs, right_idxs = self._split(X[:, best_feature], best_thresh)\n\n        # If a split results in an empty node, make this node a leaf\n        if len(left_idxs) == 0 or len(right_idxs) == 0:\n             leaf_value = self._most_common_label(y)\n             return Node(value=leaf_value)\n\n\n        left = self._grow_tree(X[left_idxs, :], y[left_idxs], depth+1)\n        right = self._grow_tree(X[right_idxs, :], y[right_idxs], depth+1)\n        return Node(best_feature, best_thresh, left, right)\n\n\n    def _best_split(self, X, y, feat_idxs):\n        best_gain = -1\n        split_idx, split_threshold = None, None\n\n        # Ensure y is not empty before calculating parent entropy\n        if len(y) == 0:\n             return None, None # Cannot split an empty set\n\n        parent_entropy = self._entropy(y)\n\n        for feat_idx in feat_idxs:\n            X_column = X[:, feat_idx]\n            thresholds = np.unique(X_column)\n\n            for thr in thresholds:\n                # calculate the information gain\n                left_idxs, right_idxs = self._split(X_column, thr)\n\n                if len(left_idxs) < self.min_samples_leaf or len(right_idxs) < self.min_samples_leaf:\n                    continue\n\n                gain = self._information_gain(y, X_column, thr)\n\n                if gain > best_gain:\n                    best_gain = gain\n                    split_idx = feat_idx\n                    split_threshold = thr\n\n        return split_idx, split_threshold\n\n\n    def _information_gain(self, y, X_column, threshold):\n        # parent entropy\n        parent_entropy = self._entropy(y)\n\n        # create children\n        left_idxs, right_idxs = self._split(X_column, threshold)\n\n        if len(left_idxs) == 0 or len(right_idxs) == 0:\n            return 0\n\n        # calculate the weighted avg. entropy of children\n        n = len(y)\n        n_l, n_r = len(left_idxs), len(right_idxs)\n        e_l, e_r = self._entropy(y[left_idxs]), self._entropy(y[right_idxs])\n        child_entropy = (n_l/n) * e_l + (n_r/n) * e_r\n\n        # calculate the IG\n        information_gain = parent_entropy - child_entropy\n        return information_gain\n\n    def _split(self, X_column, split_thresh):\n        left_idxs = np.argwhere(X_column <= split_thresh).flatten()\n        right_idxs = np.argwhere(X_column > split_thresh).flatten()\n        return left_idxs, right_idxs\n\n    def _entropy(self, y):\n        # Handle empty input for entropy calculation\n        if len(y) == 0:\n             return 0.0 # Entropy of an empty set is 0\n\n        # Ensure y contains non-negative integers for bincount\n        y_int = y.astype(int)\n        hist = np.bincount(y_int)\n        ps = hist / len(y)\n        # Add a small epsilon to avoid log(0)\n        epsilon = 1e-10\n        return -np.sum([p * np.log(p + epsilon) for p in ps if p>0])\n\n\n    def _most_common_label(self, y):\n        # Handle empty input\n        if len(y) == 0:\n             return 0 # Return a default value (e.g., 0 or -1) for an empty set\n\n        # Ensure y contains non-negative integers for Counter\n        y_int = y.astype(int)\n        counter = Counter(y_int)\n        # Check if counter is empty before accessing elements\n        if not counter:\n             return 0 # Return default value if counter is empty\n\n        value = counter.most_common(1)[0][0]\n        return value\n\n    def predict(self, X):\n        return np.array([self._traverse_tree(x, self.root) for x in X])\n\n    def _traverse_tree(self, x, node):\n        if node.is_leaf_node():\n            return node.value\n\n        # Handle cases where the feature index might be out of bounds for the input x\n        # or if node.feature is None (which shouldn't happen in a well-formed tree, but for safety)\n        if node.feature is None or node.feature >= len(x):\n             # If feature is invalid, predict the value of the current node (should be a leaf or error)\n             # This might indicate an issue in tree construction. For now, return a default.\n             # In a real scenario, this might need more robust error handling or returning the most common label from the parent node.\n             # For this scratch implementation, let's return a placeholder.\n             return 0 # Or raise an error\n\n        if x[node.feature] <= node.threshold:\n            # Handle potential None child - although _grow_tree should prevent this\n            if node.left is None:\n                 # If a left child is unexpectedly None, predict the value of the current node (if it has one)\n                 # or a default value. This indicates a tree construction issue.\n                 return node.value if node.value is not None else 0\n            return self._traverse_tree(x, node.left)\n        else:\n            # Handle potential None child\n             if node.right is None:\n                 # If a right child is unexpectedly None, predict the value of the current node (if it has one)\n                 # or a default value. This indicates a tree construction issue.\n                 return node.value if node.value is not None else 0\n             return self._traverse_tree(x, node.right)\nclass RandomForest:\n    def __init__(self, n_trees=10, max_depth=10, min_samples_split=2, n_feature=None, random_state=None, min_samples_leaf=1): # <-- TAMBAHKAN\n        self.n_trees = n_trees\n        self.max_depth=max_depth\n        self.min_samples_split=min_samples_split\n        self.n_features=n_feature\n        self.min_samples_leaf = min_samples_leaf # <-- TAMBAHKAN\n        self.trees = []\n        self.rng = np.random.RandomState(random_state)\n\n    def fit(self, X, y):\n        self.trees = []\n        for _ in range(self.n_trees):\n            tree = DecisionTree(max_depth=self.max_depth,\n                                min_samples_split=self.min_samples_split,\n                                n_features=self.n_features,\n                                min_samples_leaf=self.min_samples_leaf) # <-- TAMBAHKAN\n\n            X_sample, y_sample = self._bootstrap_samples(X, y)\n            tree.fit(X_sample, y_sample) # tree.fit() sekarang sudah benar\n            self.trees.append(tree)\n\n    def _bootstrap_samples(self, X, y):\n        n_samples = X.shape[0]\n        idxs = np.random.choice(n_samples, n_samples, replace=True)\n        return X[idxs], y[idxs]\n\n    def _most_common_label(self, y):\n        counter = Counter(y)\n        most_common = counter.most_common(1)[0][0]\n        return most_common\n\n    def predict(self, X):\n        predictions = np.array([tree.predict(X) for tree in self.trees])\n        tree_preds = np.swapaxes(predictions, 0, 1)\n        predictions = np.array([self._most_common_label(pred) for pred in tree_preds])\n        return predictions\nclass MinMaxScaler:\n    \"\"\"\n    Scaler kustom yang meniru sklearn.preprocessing.MinMaxScaler\n    dan bekerja pada list-of-lists (data 2D) Python murni.\n    \"\"\"\n\n    def __init__(self):\n        self.min_ = []\n        self.max_ = []\n        self.n_features_ = 0\n        self._data_range = []\n\n    def fit(self, X):\n        \"\"\"\n        Mempelajari nilai min dan max untuk setiap fitur (kolom) dari data X.\n        X diharapkan berbentuk list-of-lists, misal: [[1, 2], [3, 4]]\n        \"\"\"\n        if not X:\n            return\n\n        # Asumsikan semua baris memiliki jumlah fitur yang sama\n        self.n_features_ = len(X[0])\n\n        # Inisialisasi min dan max\n        self.min_ = [float('inf')] * self.n_features_\n        self.max_ = [float('-inf')] * self.n_features_\n\n        # Loop melalui data untuk menemukan min dan max\n        for row in X:\n            for i in range(self.n_features_):\n                if row[i] < self.min_[i]:\n                    self.min_[i] = row[i]\n                if row[i] > self.max_[i]:\n                    self.max_[i] = row[i]\n\n        # Hitung rentang (range) untuk digunakan nanti\n        self._data_range = []\n        for i in range(self.n_features_):\n            self._data_range.append(self.max_[i] - self.min_[i])\n\n    def transform(self, X):\n        \"\"\"\n        Mengubah data X menggunakan nilai min/max yang sudah dipelajari.\n        \"\"\"\n        if not X:\n            return []\n\n        X_scaled = []\n        for row in X:\n            scaled_row = []\n            for i in range(self.n_features_):\n                # Rumus: (nilai - min) / (max - min)\n\n                # Tangani kasus jika max == min (rentang == 0)\n                if self._data_range[i] == 0:\n                    scaled_val = 0.0  # Konvensi umum adalah 0 atau 0.5\n                else:\n                    numerator = row[i] - self.min_[i]\n                    scaled_val = numerator / self._data_range[i]\n\n                scaled_row.append(scaled_val)\n            X_scaled.append(scaled_row)\n\n        return X_scaled\n\n    def fit_transform(self, X):\n        \"\"\"\n        Menjalankan fit dan transform dalam satu langkah.\n        \"\"\"\n        self.fit(X)\n        return self.transform(X)\n\n    def inverse_transform(self, X_scaled):\n        \"\"\"\n        Mengembalikan data yang sudah di-scale ke nilai aslinya.\n        \"\"\"\n        if not X_scaled:\n            return []\n\n        X_original = []\n        for row in X_scaled:\n            original_row = []\n            for i in range(self.n_features_):\n                # Rumus: (nilai_scaled * (max - min)) + min\n                original_val = (row[i] * self._data_range[i]) + self.min_[i]\n                original_row.append(original_val)\n            X_original.append(original_row)\n\n        return X_original\ntry:\n    # --- A. Load Data ---\n    input_data = [item.json for item in items]\n    if not input_data:\n        return [{'json': {'status': 'error', 'message': 'Data kosong'}}]\n    \n    df_final = pd.DataFrame(input_data)\n\n    y, _ = pd.factorize(df_final['target_future'])\n    X = df_final.drop(columns=['target_future'])\n    \n    test_size = 0.2\n    n_test = int(len(X) * test_size)\n    n_train = len(X) - n_test\n    \n    # Ambil 80% data pertama (\"Masa Lalu\") sebagai training\n    # Gunakan .iloc untuk DataFrame Pandas Anda\n    X_train = X.iloc[:n_train]\n    y_train = y[:n_train]\n    \n    # Ambil 20% data terakhir (\"Masa Depan\") sebagai testing\n    X_test = X.iloc[n_train:]\n    y_test = y[n_train:]\n    \n    # 3b. Konversi DataFrame ke list-of-lists (sesuai input scaler kustom Anda)\n    X_train_list = X_train.values.tolist()\n    X_test_list = X_test.values.tolist()\n    \n    # 3c. Latih scaler HANYA di data training (.fit_transform)\n    preprocessor = MinMaxScaler()\n    X_train_scaled_list = preprocessor.fit_transform(X_train_list)\n    \n    # 3d. Terapkan scaler di data testing (.transform)\n    X_test_scaled_list = preprocessor.transform(X_test_list)\n    \n    # 3e. Konversi kembali ke NumPy array (untuk input model RandomForest Anda)\n    X_train_scaled = np.array(X_train_scaled_list)\n    X_test_scaled = np.array(X_test_scaled_list)\n    \n    # --- Step 4: Tentukan Parameter Optimal ---\n    # Parameter dari JSON Anda:\n    # 'n_estimators': 158\n    # 'max_depth': 38\n    # 'min_samples_split': 7\n    # 'max_features': 'sqrt'\n    # 'min_samples_leaf': 2  <-- SEKARANG AKAN DIGUNAKAN\n    # 'random_state': 41\n    \n    n_total_features = X.shape[1] # 5 fitur\n    n_features_sqrt = int(np.sqrt(n_total_features)) # int(sqrt(5)) = 2\n    print(f\"Menggunakan {n_features_sqrt} fitur ('sqrt' dari 5) untuk n_feature.\")\n    \n    # --- Step 5: Latih Model \"From Scratch\" ---\n    print(\"Memulai pelatihan RandomForest 'from scratch' dengan SEMUA parameter optimal...\")\n    \n    forest = RandomForest(\n        n_trees=158,            # dari 'n_estimators'\n        max_depth=38,           # dari 'max_depth'\n        min_samples_split=7,    # dari 'min_samples_split'\n        min_samples_leaf=2,     # <-- PARAMETER BARU ANDA\n        n_feature=n_features_sqrt, # dari 'max_features': 'sqrt'\n        random_state=40          # untuk reproduktifitas\n    )\n    \n    forest.fit(X_train.values, y_train)\n    print(\"Pelatihan Selesai.\")\n    \n    # --- Step 6: Evaluasi Model ---\n    predictions = forest.predict(X_test.values)\n    accuracy = np.sum(predictions == y_test) / len(y_test)\n    \n    print(f\"\\nAkurasi di Test Set: {accuracy * 100:.2f}%\")\n    \n        # ====================================================================\n        # 3. SIMPAN 2 FILE PKL (MODEL & SCALER)\n        # ====================================================================\n    SAVE_PATH = '/home/node/.n8n/' # Atau path Docker volume Anda\n    \n    # Simpan Model RF\n    with open(SAVE_PATH + 'model_rf_scratch.pkl', 'wb') as f:\n        pickle.dump(forest, f)\n        \n    # Simpan Scaler MinMax\n    with open(SAVE_PATH + 'scaler_scratch.pkl', 'wb') as f:\n        pickle.dump(preprocessor, f)\n        \n    # Simpan juga Label Map & Feature Names (Penting untuk Prediksi)\n    label_map = {i: label for i, label in enumerate(unique_labels)}\n    import json\n    with open(SAVE_PATH + 'label_map.json', 'w') as f:\n        json.dump(label_map, f)\n    \n    return [{'json': {\n        'status': 'Training Berhasil',\n        'accuracy': f\"{acc*100:.2f}%\",\n        'model_path': SAVE_PATH + 'model_rf_scratch.pkl',\n        'scaler_path': SAVE_PATH + 'scaler_scratch.pkl',\n        'samples_train': len(X_train),\n        'label_map': label_map\n    }}]\n\nexcept Exception as e:\n    return [{'json': {'status': 'error', 'message': str(e)}}]"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        -192
+      ],
+      "id": "72778710-3aa1-4c95-ae06-b4d98289e35c",
+      "name": "Code in Python (Beta)2"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mqttTrigger",
+      "typeVersion": 1,
+      "position": [
+        -144,
+        -336
+      ],
+      "id": "4f5ef716-62ba-47a2-9485-ac4691b770d9",
+      "name": "MQTT Trigger"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get many rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get many rows": {
+      "main": [
+        [
+          {
+            "node": "Filter Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Data": {
+      "main": [
+        [
+          {
+            "node": "Code in Python (Beta)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in Python (Beta)": {
+      "main": [
+        [
+          {
+            "node": "Code in Python (Beta)1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Train Data": {
+      "main": [
+        [
+          {
+            "node": "Clean Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean Data": {
+      "main": [
+        [
+          {
+            "node": "Code in Python (Beta)2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MQTT Trigger": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "0315a764-786d-435d-8cd3-0aa70d097845",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "9f2b3cd3330fe28f209f82a85639b178842c635ce410fffee638cd1774c5bbc7"
+  },
+  "id": "O9tYgSYY394IEvRI",
+  "tags": []
+}

@@ -19,7 +19,7 @@ Dashboard kontrol irigasi cerdas berbasis IoT dengan monitoring real-time sensor
 - **Node.js** 18.x atau lebih baru
 - **npm** atau **yarn** atau **pnpm**
 - **Supabase Account** (gratis)
-- **MQTT Broker** (test.mosquitto.org atau broker.mqtt.cool)
+- **MQTT Broker** (test.mosquitto.org atau test.mosquitto.org)
 - **STM32** dengan sensor BME280, DS18B20, soil moisture, water level (opsional)
 
 ## 🚀 Instalasi Manual

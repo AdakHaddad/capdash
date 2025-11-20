@@ -1,0 +1,10 @@
+{
+  "name": "mqtt-simulator",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "STM32 MQTT Simulator using WebSocket",
+  "main": "simulate_mqtt_ws.js",
+  "dependencies": {
+    "mqtt": "^5.10.1"
+  }
+}

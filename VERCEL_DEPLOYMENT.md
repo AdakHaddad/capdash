@@ -84,7 +84,7 @@ If test.mosquitto.org is down, try these:
 
 **HiveMQ Public Broker**
 ```
-NEXT_PUBLIC_MQTT_BROKER_URL=wss://broker.hivemq.com:8884
+NEXT_PUBLIC_MQTT_BROKER_URL=wss://test.mosquitto.org:8884
 ```
 
 **Eclipse Public Broker**
