@@ -71,7 +71,7 @@ export default function IrrigationControl() {
             const supabase = createClient();
             const { data, error } = await supabase
               .from('ml_predictions')
-              .select('prediction')
+              .select('weather_in_3_hours')
               .order('created_at', { ascending: false })
               .limit(1)
               .single();
@@ -82,10 +82,23 @@ export default function IrrigationControl() {
               return;
             }
 
-            if (data) {
-              const pred = data.prediction;
-              const predictionText = pred === 1 ? 'Hujan/Lembab' : 'Kering/Cerah';
-              const symbol = pred === 1 ? '🌧️' : '☀️';
+            if (data && data.weather_in_3_hours) {
+              const weatherText = data.weather_in_3_hours;
+              let predictionText = 'Tidak diketahui';
+              let symbol = '❓';
+
+              // Map weather text to prediction and symbol
+              if (weatherText === 'kering/berawan') {
+                predictionText = 'Kering/Berawan';
+                symbol = '⛅';
+              } else if (weatherText === 'hujan') {
+                predictionText = 'Hujan';
+                symbol = '🌧️';
+              } else {
+                predictionText = 'Kering/Berawan';
+                symbol = '⛅';
+              }
+
               setMlPrediction({ prediction: predictionText, symbol });
             } else {
               setMlPrediction(null);
