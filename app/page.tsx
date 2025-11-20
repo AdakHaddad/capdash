@@ -5,6 +5,7 @@ import mqtt, { MqttClient } from 'mqtt';
 import ShallotAvatar from './components/ShallotAvatar';
 import ScheduleCalendar from './components/ScheduleCalendar';
 import SensorHistory from './components/SensorHistory';
+import { createClient } from '../lib/supabase/client';
 
 interface Sensors {
   pressure: number;
@@ -59,6 +60,9 @@ export default function IrrigationControl() {
       // Weather state for Jogja (Open-Meteo)
       const [weather, setWeather] = useState<{ temp: number; desc: string; symbol: string } | null>(null);
       const [forecast, setForecast] = useState<Array<{ hour: string; temp: number; symbol: string }>>([]);
+
+      // ML Prediction state
+      const [mlPrediction, setMlPrediction] = useState<{ prediction: string; symbol: string } | null>(null);
 
       // Map Open-Meteo weathercode to description and symbol
       const weatherDescMap: { [key: number]: { desc: string; symbol: string } } = {
@@ -126,6 +130,44 @@ export default function IrrigationControl() {
         };
         fetchWeather();
       }, []);
+
+      // Fetch latest ML prediction from Supabase
+      useEffect(() => {
+        const fetchMlPrediction = async () => {
+          try {
+            const supabase = createClient();
+            const { data, error } = await supabase
+              .from('ml_predictions')
+              .select('prediction')
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .single();
+
+            if (error) {
+              console.error('Error fetching ML prediction:', error);
+              setMlPrediction(null);
+              return;
+            }
+
+            if (data) {
+              const pred = data.prediction;
+              const predictionText = pred === 1 ? 'Hujan/Lembab' : 'Kering/Cerah';
+              const symbol = pred === 1 ? '🌧️' : '☀️';
+              setMlPrediction({ prediction: predictionText, symbol });
+            } else {
+              setMlPrediction(null);
+            }
+          } catch (err) {
+            console.error('Error fetching ML prediction:', err);
+            setMlPrediction(null);
+          }
+        };
+        fetchMlPrediction();
+        // Refresh every 5 minutes
+        const interval = setInterval(fetchMlPrediction, 5 * 60 * 1000);
+        return () => clearInterval(interval);
+      }, []);
+
     // Activate fuzzy ML automation: send ML-recommended command via MQTT
     const activateMLAutomation = () => {
       const client = mqttClientRef.current;
@@ -1133,7 +1175,7 @@ export default function IrrigationControl() {
         <div className="p-3 mb-4 md:col-span-3">
           <span className="text-lg">{weather ? weather.symbol : '❓'}</span>
           <div className="flex-1 text-sm leading-relaxed text-gray-800 mt-1">
-            <strong>Perkiraan Cuaca</strong><br />
+            <strong>Perkiraan Cuaca (API)</strong><br />
             {weather
               ? (<>
                   {weather.desc} {weather.symbol}<br />
@@ -1150,6 +1192,17 @@ export default function IrrigationControl() {
                   </div>
                 </>)
               : 'Perhitungan data cuaca.'}
+          </div>
+        </div>
+
+        {/* ML Weather Prediction */}
+        <div className="p-3 mb-4 md:col-span-3">
+          <span className="text-lg">{mlPrediction ? mlPrediction.symbol : '🤖'}</span>
+          <div className="flex-1 text-sm leading-relaxed text-gray-800 mt-1">
+            <strong>Prediksi Cuaca (ML)</strong><br />
+            {mlPrediction
+              ? `${mlPrediction.prediction} ${mlPrediction.symbol}`
+              : 'Menghitung prediksi ML...'}
           </div>
         </div>
 
