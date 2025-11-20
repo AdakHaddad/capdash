@@ -1171,29 +1171,6 @@ export default function IrrigationControl() {
            */}
         </div>
 
-        {/* Weather Alert - Live from Open-Meteo with symbol and forward prediction */}
-        <div className="p-3 mb-4 md:col-span-3">
-          <span className="text-lg">{weather ? weather.symbol : '❓'}</span>
-          <div className="flex-1 text-sm leading-relaxed text-gray-800 mt-1">
-            <strong>Perkiraan Cuaca (API)</strong><br />
-            {weather
-              ? (<>
-                  {weather.desc} {weather.symbol}<br />
-                  Suhu: {weather.temp.toFixed(1)}°C<br />
-                  <span className="text-xs text-gray-600">Prediksi 6 jam ke depan:</span><br />
-                  <div className="flex gap-2 mt-1">
-                    {forecast.map((f, idx) => (
-                      <div key={idx} className="flex flex-col items-center px-1">
-                        <span>{f.symbol}</span>
-                        <span className="text-[10px]">{f.hour}</span>
-                        <span className="text-[10px]">{f.temp.toFixed(1)}°C</span>
-                      </div>
-                    ))}
-                  </div>
-                </>)
-              : 'Perhitungan data cuaca.'}
-          </div>
-        </div>
 
         {/* ML Weather Prediction */}
         <div className="p-3 mb-4 md:col-span-3">
