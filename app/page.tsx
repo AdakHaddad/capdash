@@ -57,60 +57,97 @@ interface ApiResponse {
 }
 
 export default function IrrigationControl() {
-      // Weather state for Jogja (Open-Meteo)
-      const [weather, setWeather] = useState<{ temp: number; desc: string; symbol: string } | null>(null);
-      const [forecast, setForecast] = useState<Array<{ hour: string; temp: number; symbol: string }>>([]);
+      const [forecast, setForecast] = useState<Array<{ hour: string; temp: number | null; symbol: string; isML: boolean; prediction?: string }>>([]);
 
-      // ML Prediction state
-      const [mlPrediction, setMlPrediction] = useState<{ prediction: string; symbol: string } | null>(null);
+      // ML Predictions state
+      const [mlPredictions, setMlPredictions] = useState<Array<{ prediction: string; symbol: string; predicted_at: string }>>([]);
 
-      // Fetch latest ML prediction from Supabase
+      // Fetch latest 4 ML predictions from Supabase
       useEffect(() => {
-        const fetchMlPrediction = async () => {
+        const fetchMlPredictions = async () => {
           try {
             const supabase = createClient();
             const { data, error } = await supabase
               .from('ml_predictions')
-              .select('weather_in_3_hours')
+              .select('weather_in_3_hours, predicted_at')
               .order('created_at', { ascending: false })
-              .limit(1)
-              .single();
+              .limit(4);
 
             if (error) {
-              console.error('Error fetching ML prediction:', error);
-              setMlPrediction(null);
+              console.error('Error fetching ML predictions:', error);
+              setMlPredictions([]);
               return;
             }
 
-            if (data && data.weather_in_3_hours) {
-              const weatherText = data.weather_in_3_hours;
-              let predictionText = 'Tidak diketahui';
-              let symbol = '❓';
+            if (data && data.length > 0) {
+              const predictions = data.map((item) => {
+                const weatherText = item.weather_in_3_hours;
+                let predictionText = 'Tidak diketahui';
+                let symbol = '❓';
 
-              // Map weather text to prediction and symbol
-              if (weatherText === 'kering/berawan') {
-                predictionText = 'Kering/Berawan';
-                symbol = '⛅';
-              } else if (weatherText === 'hujan') {
-                predictionText = 'Hujan';
-                symbol = '🌧️';
-              } else {
-                predictionText = 'Kering/Berawan';
-                symbol = '⛅';
-              }
+                // Map weather text to prediction and symbol
+                if (weatherText === 'kering/berawan') {
+                  predictionText = 'Kering/Berawan';
+                  symbol = '⛅';
+                } else if (weatherText === 'hujan') {
+                  predictionText = 'Hujan';
+                  symbol = '🌧️';
+                } else {
+                  predictionText = 'Kering/Berawan';
+                  symbol = '⛅';
+                }
 
-              setMlPrediction({ prediction: predictionText, symbol });
+                return { prediction: predictionText, symbol, predicted_at: item.predicted_at };
+              });
+
+              setMlPredictions(predictions);
+
+              // Create 4 cards: Sekarang, +1 jam, +2 jam, +3 jam
+              const forecastData = [
+                {
+                  hour: 'Sekarang',
+                  temp: null,
+                  symbol: predictions[0]?.symbol || '❓',
+                  isML: true,
+                  prediction: predictions[0]?.prediction || 'Tidak diketahui'
+                },
+                {
+                  hour: '+1 jam',
+                  temp: null,
+                  symbol: predictions[1]?.symbol || '❓',
+                  isML: true,
+                  prediction: predictions[1]?.prediction || 'Tidak diketahui'
+                },
+                {
+                  hour: '+2 jam',
+                  temp: null,
+                  symbol: predictions[2]?.symbol || '❓',
+                  isML: true,
+                  prediction: predictions[2]?.prediction || 'Tidak diketahui'
+                },
+                {
+                  hour: '+3 jam',
+                  temp: null,
+                  symbol: predictions[3]?.symbol || '❓',
+                  isML: true,
+                  prediction: predictions[3]?.prediction || 'Tidak diketahui'
+                }
+              ];
+
+              setForecast(forecastData);
             } else {
-              setMlPrediction(null);
+              setMlPredictions([]);
+              setForecast([]);
             }
           } catch (err) {
-            console.error('Error fetching ML prediction:', err);
-            setMlPrediction(null);
+            console.error('Error fetching ML predictions:', err);
+            setMlPredictions([]);
+            setForecast([]);
           }
         };
-        fetchMlPrediction();
+        fetchMlPredictions();
         // Refresh every 5 minutes
-        const interval = setInterval(fetchMlPrediction, 5 * 60 * 1000);
+        const interval = setInterval(fetchMlPredictions, 5 * 60 * 1000);
         return () => clearInterval(interval);
       }, []);
 
@@ -1118,14 +1155,27 @@ export default function IrrigationControl() {
         </div>
 
 
-        {/* ML Weather Prediction */}
-        <div className="p-3 mb-4 md:col-span-3">
-          <span className="text-lg">{mlPrediction ? mlPrediction.symbol : '🤖'}</span>
-          <div className="flex-1 text-sm leading-relaxed text-gray-800 mt-1">
-            <strong>Prediksi Cuaca (ML)</strong><br />
-            {mlPrediction
-              ? `${mlPrediction.prediction} ${mlPrediction.symbol}`
-              : 'Menghitung prediksi ML...'}
+        {/* ML Weather Prediction Cards */}
+        <div className="md:col-span-3 mb-4">
+          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-4 shadow-sm border border-blue-100">
+            <h3 className="text-lg font-semibold text-gray-800 mb-3 flex items-center gap-2">
+              <span>🤖</span> Prediksi Cuaca ML (3 Jam Kedepan)
+            </h3>
+            {forecast.length > 0 ? (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                {forecast.map((item, index) => (
+                  <div key={index} className="bg-white/60 rounded-lg p-3 text-center shadow-sm">
+                    <div className="text-sm font-medium text-gray-800 mb-1">{item.hour}</div>
+                    <div className="text-2xl mb-1">{item.symbol}</div>
+                    <div className="text-xs text-gray-600">{item.prediction}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center text-gray-500 py-4">
+                Memuat prediksi ML...
+              </div>
+            )}
           </div>
         </div>
 
