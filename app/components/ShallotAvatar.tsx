@@ -12,6 +12,7 @@ interface ShallotAvatarProps {
 export default function ShallotAvatar({ airTemp, airHumidity, soilHumidity, soilTemp }: ShallotAvatarProps) {
   const [blink, setBlink] = useState(false);
   const [sweat, setSweat] = useState(false);
+  const [gesture, setGesture] = useState<string | null>(null);
 
   // Debug logging
   useEffect(() => {
@@ -62,6 +63,42 @@ export default function ShallotAvatar({ airTemp, airHumidity, soilHumidity, soil
     });
   }, [currentState, tempTooHigh, tempHot, soilDry, soilCritical, airDry, healthy]);
 
+  // MQTT gesture subscription
+  useEffect(() => {
+    const brokerUrl = process.env.NEXT_PUBLIC_MQTT_BROKER_URL;
+    if (!brokerUrl) {
+      console.error('MQTT broker URL not found. Please set NEXT_PUBLIC_MQTT_BROKER_URL in .env.local');
+      return;
+    }
+
+    // Convert WSS to WS for WebSocket connection
+    const wsUrl = brokerUrl.replace('wss://', 'ws://').replace('ws://', 'ws://');
+    
+    const ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+      console.log('Connected to MQTT WebSocket for gestures');
+      // Subscribe to emotbawang topic
+      ws.send(JSON.stringify({ type: 'subscribe', topic: 'emotbawang' }));
+    };
+
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.topic === 'emotbawang' && data.message) {
+        setGesture(data.message);
+        setTimeout(() => setGesture(null), 2000); // Reset after 2 seconds
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error('WebSocket error for gestures:', error);
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, []);
+
   // Color changes based on health (from bawang.svg reference)
   const bulbColor = soilCritical 
     ? '#653850' // Deep purple-brown when critical
@@ -104,6 +141,7 @@ export default function ShallotAvatar({ airTemp, airHumidity, soilHumidity, soil
   const isStressed = tempHot || soilDry || airDry;
   const isShaking = tempTooHigh && soilCritical;
   const isShivering = tempTooCold;
+  const isGesturing = gesture !== null;
 
   // Eye states
   const eyeState = soilCritical 
@@ -189,6 +227,57 @@ export default function ShallotAvatar({ airTemp, airHumidity, soilHumidity, soil
         
         {/* Shallot Bulb - Much Chubbier! */}
         <g className={isWilting ? 'animate-droop' : ''}>
+          {/* SVG Gesture Animations */}
+          {gesture === 'thumbsup' && (
+            <animateTransform
+              attributeName="transform"
+              type="rotate"
+              values="0 100 175; -10 100 175; 0 100 175"
+              dur="0.5s"
+              repeatCount="1"
+              fill="freeze"
+            />
+          )}
+          {gesture === 'ok' && (
+            <animateTransform
+              attributeName="transform"
+              type="scale"
+              values="1 1; 1.1 1.1; 1 1"
+              dur="0.5s"
+              repeatCount="1"
+              fill="freeze"
+            />
+          )}
+          {gesture === 'cheer' && (
+            <animateTransform
+              attributeName="transform"
+              type="translate"
+              values="0 0; 0 -5; 0 5; 0 0"
+              dur="0.5s"
+              repeatCount="1"
+              fill="freeze"
+            />
+          )}
+          {gesture === 'heart' && (
+            <animateTransform
+              attributeName="transform"
+              type="scale"
+              values="1 1; 1.2 1.2; 1 1"
+              dur="0.5s"
+              repeatCount="1"
+              fill="freeze"
+            />
+          )}
+          {gesture === 'smile' && (
+            <animateTransform
+              attributeName="transform"
+              type="rotate"
+              values="0 100 175; 5 100 175; 0 100 175"
+              dur="0.5s"
+              repeatCount="1"
+              fill="freeze"
+            />
+          )}
           {/* Shadow layer */}
           <ellipse
             cx="100"
